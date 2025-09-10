@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Search, AlertTriangle, CheckCircle, Clock, ArrowLeft, User } from "lucide-react"
+import { Search, AlertTriangle, CheckCircle, Clock, ArrowLeft, User, MapPin } from "lucide-react"
 import { PaymentDialog } from "@/components/payment-dialog"
 import { updateNoticeStatus, getCurrentUser, getNoticesForDisplay } from "@/app/actions/notices"
 
@@ -25,6 +25,7 @@ interface PolicyNotice {
       full_name: string
       phone?: string
       email?: string
+      locality?: string
     }
     companies: {
       id: string
@@ -73,7 +74,8 @@ export function NoticesSection({ notices: initialNotices }: NoticesSectionProps)
         notice.policies.clients.full_name.toLowerCase().includes(term) ||
         notice.policies.companies.name.toLowerCase().includes(term) ||
         notice.policies.branch.toLowerCase().includes(term) ||
-        notice.policies.vehicle_plate?.toLowerCase().includes(term),
+        notice.policies.vehicle_plate?.toLowerCase().includes(term) ||
+        notice.policies.clients.locality?.toLowerCase().includes(term),
     )
   }, [notices, searchTerm])
 
@@ -122,7 +124,7 @@ export function NoticesSection({ notices: initialNotices }: NoticesSectionProps)
     }
 
     try {
-      const result = await updateNoticeStatus(noticeId, newStatus, currentUserEmail)
+      const result = await updateNoticeStatus(noticeId, newStatus)
       if (result.data) {
         setNotices(
           notices.map((notice) =>
@@ -164,6 +166,14 @@ export function NoticesSection({ notices: initialNotices }: NoticesSectionProps)
             <div>
               <CardTitle className="text-base">{notice.policies.clients.full_name}</CardTitle>
               <p className="text-sm text-muted-foreground">{notice.policies.companies.name}</p>
+              {notice.policies.clients.locality && (
+              <div className="flex justify-between text-sm items-center">
+                <span className="font-medium text-muted-foreground flex items-center gap-1">
+                  <MapPin className="h-3 w-3" />
+                  {notice.policies.clients.locality}
+                </span>
+              </div>
+            )}
             </div>
             <Badge variant="outline" className={statusColor}>
               {statusText}

@@ -17,11 +17,21 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Loader2, CreditCard } from "lucide-react"
 import { processPayment } from "@/app/actions/notices"
 
+interface Note {
+  id: string;
+  note: string;
+  created_at: string;
+  user_profiles: {
+    display_name: string;
+  } | null;
+}
+
 interface PolicyNotice {
   id: string
   due_date: string
   status: "avisar" | "avisado" | "pagado"
   paid_installments: number
+  notified_by?: string | null
   policies: {
     id: string
     branch: string
@@ -32,19 +42,21 @@ interface PolicyNotice {
       full_name: string
       phone?: string
       email?: string
+      locality?: string
     }
     companies: {
       id: string
       name: string
     }
   }
+  notice_notes: Note[]
 }
 
 interface PaymentDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   notice: PolicyNotice | null
-  onSuccess: (notice: PolicyNotice) => void
+  onSuccess: (updatedNotice: PolicyNotice) => void
 }
 
 export function PaymentDialog({ open, onOpenChange, notice, onSuccess }: PaymentDialogProps) {

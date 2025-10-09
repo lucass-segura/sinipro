@@ -5,9 +5,19 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Search, AlertTriangle, CheckCircle, Clock, ArrowLeft, User, MapPin } from "lucide-react"
+import { Search, AlertTriangle, CheckCircle, Clock, ArrowLeft, User, MapPin, MessageSquare } from "lucide-react"
 import { PaymentDialog } from "@/components/payment-dialog"
 import { updateNoticeStatus, getCurrentUser, getNoticesForDisplay } from "@/app/actions/notices"
+import { NoteDialog } from "./note-dialog"
+
+interface Note {
+  id: string
+  note: string
+  created_at: string
+  user_profiles: {
+    display_name: string
+  } | null
+}
 
 interface PolicyNotice {
   id: string
@@ -32,6 +42,7 @@ interface PolicyNotice {
       name: string
     }
   }
+  notice_notes: Note[];
 }
 
 interface NoticesSectionProps {
@@ -42,6 +53,7 @@ export function NoticesSection({ notices: initialNotices }: NoticesSectionProps)
   const [notices, setNotices] = useState<PolicyNotice[]>(initialNotices)
   const [searchTerm, setSearchTerm] = useState("")
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
+  const [noteDialogOpen, setNoteDialogOpen] = useState(false)
   const [selectedNotice, setSelectedNotice] = useState<PolicyNotice | null>(null)
   const [currentUserEmail, setCurrentUserEmail] = useState<string>("")
 
@@ -154,6 +166,26 @@ export function NoticesSection({ notices: initialNotices }: NoticesSectionProps)
     setSelectedNotice(null)
   }
 
+  const handleNoteAdded = (noticeId: string, newNote: Note) => {
+    // 1. Creamos la nueva lista de avisos con la nota agregada
+    const updatedNotices = notices.map((n) =>
+      n.id === noticeId
+        ? { ...n, notice_notes: [...(n.notice_notes || []), newNote] }
+        : n,
+    )
+        // 2. Actualizamos el estado principal de los avisos
+        setNotices(updatedNotices)
+
+        // 3. Buscamos el aviso que acabamos de modificar en la nueva lista
+        const updatedNotice = updatedNotices.find((n) => n.id === noticeId)
+    
+        // 4. Si lo encontramos, actualizamos también el aviso seleccionado
+        //    para que el modal muestre la nueva nota inmediatamente.
+        if (updatedNotice) {
+          setSelectedNotice(updatedNotice)
+        }
+      }
+
   const renderNoticeCard = (notice: PolicyNotice) => {
     const daysUntilDue = getDaysUntilDue(notice.due_date)
     const statusColor = getStatusColor(daysUntilDue)
@@ -260,6 +292,18 @@ export function NoticesSection({ notices: initialNotices }: NoticesSectionProps)
                 Avisado
               </Button>
             )}
+            <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setSelectedNotice(notice);
+                  setNoteDialogOpen(true);
+                }}
+                className="gap-1 bg-transparent"
+              >
+                <MessageSquare className="h-3 w-3" />
+                Nota
+              </Button>
           </div>
         </CardContent>
       </Card>
@@ -350,6 +394,13 @@ export function NoticesSection({ notices: initialNotices }: NoticesSectionProps)
         onOpenChange={setPaymentDialogOpen}
         notice={selectedNotice}
         onSuccess={handlePaymentComplete}
+      />
+      {/* Note Dialog */}
+      <NoteDialog
+        open={noteDialogOpen}
+        onOpenChange={setNoteDialogOpen}
+        notice={selectedNotice}
+        onSuccess={handleNoteAdded}
       />
     </div>
   )

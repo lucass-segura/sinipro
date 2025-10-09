@@ -263,10 +263,10 @@ export async function getNoticesForDisplay() {
     const fifteenDaysFromNow = new Date()
     fifteenDaysFromNow.setDate(fifteenDaysFromNow.getDate() + 15)
 
-    // Get all notices that should be displayed
     const { data: notices, error } = await supabase
       .from("policy_notices")
-      .select(`
+      .select(
+        `
         *,
         policies (
           *,
@@ -281,14 +281,27 @@ export async function getNoticesForDisplay() {
             id,
             name
           )
+        ),
+        notice_notes (
+          id,
+          note,
+          created_at,
+          user_profiles (
+            display_name
+          )
         )
-      `)
+      `,
+      )
       .or(
-        `status.eq.avisado,status.eq.pagado,and(status.eq.avisar,due_date.lte.${fifteenDaysFromNow.toISOString().split("T")[0]})`,
+        `status.eq.avisado,status.eq.pagado,and(status.eq.avisar,due_date.lte.${
+          fifteenDaysFromNow.toISOString().split("T")[0]
+        })`,
       )
       .order("due_date", { ascending: true })
 
     if (error) {
+      // Si hay un error, lo mostramos para tener más pistas
+      console.error("Error fetching notices:", error)
       return { error: "Error al obtener los avisos" }
     }
 
@@ -297,6 +310,45 @@ export async function getNoticesForDisplay() {
     return { data: notices || [] }
   } catch (error) {
     return { error: "Error inesperado al obtener avisos" }
+  }
+}
+
+export async function addNoteToNotice(noticeId: string, note: string) {
+  try {
+    const supabase = await createServerClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { error: "Usuario no autenticado" };
+    }
+
+    const { data, error } = await supabase
+      .from("notice_notes")
+      .insert({
+        notice_id: noticeId,
+        user_id: user.id,
+        note: note,
+      })
+      .select(
+        `
+        id,
+        note,
+        created_at,
+        user_profiles (
+          display_name
+        )
+      `
+      )
+      .single();
+
+    if (error) {
+      console.error("Error adding note:", error);
+      return { error: "Error al agregar la nota" };
+    }
+    revalidatePath("/avisos");
+    return { data };
+  } catch (error) {
+    return { error: "Error inesperado al agregar la nota" };
   }
 }
 

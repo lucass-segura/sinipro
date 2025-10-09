@@ -75,11 +75,10 @@ export function ClientDialog({
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [isMounted, setIsMounted] = useState(false); // <-- Nuevo estado
+  const [isMounted, setIsMounted] = useState(false);
 
   const isEditing = !!client;
 
-  // Asegura que el contenido solo se monte en el cliente
   useEffect(() => {
     if (open) {
       setIsMounted(true);
@@ -117,14 +116,6 @@ export function ClientDialog({
       if (!policy.first_payment_date)
         newErrors[`policy_${index}_date`] =
           "La fecha del primer cobro es requerida";
-      if (
-        (policy.branch === "Automotores" ||
-          policy.branch === "Motovehiculos") &&
-        !policy.vehicle_plate?.trim()
-      ) {
-        newErrors[`policy_${index}_plate`] =
-          "La patente es requerida para esta rama";
-      }
     });
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -141,7 +132,7 @@ export function ClientDialog({
       if (result.error) setErrors({ general: result.error });
       else if (result.data) {
         onSuccess(result.data);
-        handleOpenChange(false); // Cerrar al tener éxito
+        handleOpenChange(false);
       }
     } catch (err) {
       setErrors({ general: "Error inesperado. Intenta nuevamente." });
@@ -160,7 +151,6 @@ export function ClientDialog({
     if (!isLoading) {
       onOpenChange(newOpen);
       if (!newOpen) {
-        // Retrasar el reseteo para evitar parpadeos y desmontar el contenido
         setTimeout(() => {
           setIsMounted(false);
           resetForm();
@@ -182,12 +172,6 @@ export function ClientDialog({
   const updatePolicy = (index: number, field: keyof Policy, value: string) => {
     const updatedPolicies = [...policies];
     updatedPolicies[index] = { ...updatedPolicies[index], [field]: value };
-    if (
-      field === "branch" &&
-      value !== "Automotores" &&
-      value !== "Motovehiculos"
-    )
-      updatedPolicies[index].vehicle_plate = "";
     setPolicies(updatedPolicies);
   };
 
@@ -205,7 +189,6 @@ export function ClientDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* Solo renderiza el formulario si el componente está montado en el cliente */}
         {isMounted && (
           <form onSubmit={handleSubmit} className="space-y-6 pt-4">
             {/* Client Information */}
@@ -398,10 +381,10 @@ export function ClientDialog({
                               </p>
                             )}
                           </div>
-                          {(policy.branch === "Automotores" ||
-                            policy.branch === "Motovehiculos") && (
+                          {/* CAMBIO: Se muestra siempre si hay una rama seleccionada */}
+                          {policy.branch && (
                             <div className="space-y-2">
-                              <Label>Patente del Vehículo *</Label>
+                              <Label>Número de Póliza</Label>
                               <Input
                                 value={policy.vehicle_plate || ""}
                                 onChange={(e) =>
@@ -411,19 +394,9 @@ export function ClientDialog({
                                     e.target.value.toUpperCase()
                                   )
                                 }
-                                placeholder="ABC123"
+                                placeholder="N° de Póliza"
                                 disabled={isLoading}
-                                className={
-                                  errors[`policy_${index}_plate`]
-                                    ? "border-red-500"
-                                    : ""
-                                }
                               />
-                              {errors[`policy_${index}_plate`] && (
-                                <p className="text-sm text-red-600">
-                                  {errors[`policy_${index}_plate`]}
-                                </p>
-                              )}
                             </div>
                           )}
                           <div className="space-y-2">

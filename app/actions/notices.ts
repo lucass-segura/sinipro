@@ -259,7 +259,6 @@ export async function cleanupExpiredNotices() {
 export async function getNoticesForDisplay() {
   try {
     const supabase = await createServerClient()
-
     const fifteenDaysFromNow = new Date()
     fifteenDaysFromNow.setDate(fifteenDaysFromNow.getDate() + 15)
 
@@ -270,25 +269,14 @@ export async function getNoticesForDisplay() {
         *,
         policies (
           *,
-          clients (
-            id,
-            full_name,
-            phone,
-            email,
-            locality
-          ),
-          companies (
-            id,
-            name
-          )
+          clients (id, full_name, phone, email, locality),
+          companies (id, name)
         ),
         notice_notes (
           id,
           note,
-          created_at,
-          user_profiles (
-            display_name
-          )
+          user_id,
+          user_profiles (display_name)
         )
       `,
       )
@@ -300,16 +288,65 @@ export async function getNoticesForDisplay() {
       .order("due_date", { ascending: true })
 
     if (error) {
-      // Si hay un error, lo mostramos para tener más pistas
       console.error("Error fetching notices:", error)
       return { error: "Error al obtener los avisos" }
     }
-
     await cleanupExpiredNotices()
-
     return { data: notices || [] }
   } catch (error) {
     return { error: "Error inesperado al obtener avisos" }
+  }
+}
+
+export async function upsertNoticeNote(noticeId: string, noteText: string, noteId?: string) {
+  try {
+    const supabase = await createServerClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return { error: "Usuario no autenticado." }
+
+    const noteData = {
+      id: noteId,
+      notice_id: noticeId,
+      user_id: user.id,
+      note: noteText,
+    }
+
+    const { data, error } = await supabase.from("notice_notes").upsert(noteData).select(`*, user_profiles(display_name)`).single()
+
+    if (error) {
+      console.error("Error upserting note:", error)
+      return { error: "No se pudo guardar la nota." }
+    }
+
+    revalidatePath("/avisos")
+    return { data }
+  } catch (error) {
+    return { error: "Error inesperado al guardar la nota." }
+  }
+}
+
+// NUEVA FUNCIÓN para eliminar una nota
+export async function deleteNoticeNote(noteId: string) {
+  try {
+    const supabase = await createServerClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return { error: "Usuario no autenticado." }
+
+    const { error } = await supabase.from("notice_notes").delete().match({ id: noteId, user_id: user.id })
+
+    if (error) {
+      console.error("Error deleting note:", error)
+      return { error: "No se pudo eliminar la nota." }
+    }
+
+    revalidatePath("/avisos")
+    return { data: { success: true } }
+  } catch (error) {
+    return { error: "Error inesperado al eliminar la nota." }
   }
 }
 

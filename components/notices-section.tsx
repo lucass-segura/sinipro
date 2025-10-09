@@ -2,77 +2,154 @@
 
 import { useState, useMemo, useEffect } from "react"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Search, AlertTriangle, CheckCircle, Clock, ArrowLeft, User, MapPin, MessageSquare } from "lucide-react"
+import {
+  Search,
+  AlertTriangle,
+  CheckCircle,
+  Clock,
+  ArrowLeft,
+  User,
+  MapPin,
+  MessageSquare,
+  Save,
+  Trash2,
+  X,
+  Edit,
+  Loader2,
+} from "lucide-react"
 import { PaymentDialog } from "@/components/payment-dialog"
-import { updateNoticeStatus, getCurrentUser, getNoticesForDisplay } from "@/app/actions/notices"
-import { NoteDialog } from "./note-dialog"
+import {
+  updateNoticeStatus,
+  getCurrentUser,
+  getNoticesForDisplay,
+  upsertNoticeNote,
+  deleteNoticeNote,
+} from "@/app/actions/notices"
 
-interface Note {
-  id: string
-  note: string
-  created_at: string
-  user_profiles: {
-    display_name: string
-  } | null
-}
-
-interface PolicyNotice {
-  id: string
-  due_date: string
-  status: "avisar" | "avisado" | "pagado"
-  paid_installments: number
-  notified_by?: string | null
-  policies: {
-    id: string
-    branch: string
-    vehicle_plate?: string
-    first_payment_date: string
-    clients: {
-      id: string
-      full_name: string
-      phone?: string
-      email?: string
-      locality?: string
-    }
-    companies: {
-      id: string
-      name: string
-    }
-  }
-  notice_notes: Note[];
-}
+import type { Note, PolicyNotice } from "@/types/index"
 
 interface NoticesSectionProps {
   notices: PolicyNotice[]
 }
 
+// NUEVO COMPONENTE INTERNO para manejar la lógica de la nota
+function NoticeNote({ noticeId, notes, currentUserId, onNoteUpdate }: { noticeId: string; notes: Note[]; currentUserId: string; onNoteUpdate: (noticeId: string, notes: Note[]) => void }) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [noteText, setNoteText] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+
+  const userNote = useMemo(() => notes.find((n) => n.user_id === currentUserId), [notes, currentUserId])
+
+  useEffect(() => {
+    setNoteText(userNote?.note || "")
+  }, [userNote])
+
+  const handleSave = async () => {
+    setIsLoading(true)
+    const result = await upsertNoticeNote(noticeId, noteText, userNote?.id)
+    if (result.data) {
+      const updatedNotes = userNote
+        ? notes.map((n) => (n.id === userNote.id ? result.data : n))
+        : [...notes, result.data]
+      onNoteUpdate(noticeId, updatedNotes)
+      setIsEditing(false)
+    }
+    setIsLoading(false)
+  }
+
+  const handleDelete = async () => {
+    if (userNote && window.confirm("¿Estás seguro de que quieres eliminar esta nota?")) {
+      setIsLoading(true)
+      const result = await deleteNoticeNote(userNote.id)
+      if (result.data) {
+        const updatedNotes = notes.filter((n) => n.id !== userNote.id)
+        onNoteUpdate(noticeId, updatedNotes)
+      }
+      setIsLoading(false)
+    }
+  }
+
+  return (
+    <div className="pt-3 border-t mt-3 space-y-2">
+      <h4 className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+        <MessageSquare className="h-4 w-4" />
+        Notas
+      </h4>
+      {isEditing ? (
+        <div className="space-y-2">
+          <Textarea
+            value={noteText}
+            onChange={(e) => setNoteText(e.target.value)}
+            placeholder="Escribe tu nota aquí..."
+            className="text-sm"
+            rows={2}
+            disabled={isLoading}
+          />
+          <div className="flex gap-2 justify-end">
+            <Button size="sm" variant="ghost" onClick={() => setIsEditing(false)} disabled={isLoading}>
+              <X className="h-4 w-4" />
+            </Button>
+            <Button size="sm" onClick={handleSave} disabled={isLoading}>
+              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            </Button>
+          </div>
+        </div>
+      ) : userNote ? (
+        <div className="group text-sm flex gap-2 text-foreground bg-amber-200 p-2 rounded-md">
+          <p className="font-semibold">{userNote.user_profiles?.display_name || "Tú"}:</p>
+          <p className="whitespace-pre-wrap font-bold">{userNote.note}</p>
+          <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+            <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={handleDelete}>
+              <Trash2 className="h-3 w-3" />
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button size="sm" variant="outline" className="w-full bg-transparent" onClick={() => setIsEditing(true)}>
+          Agregar Nota
+        </Button>
+      )}
+      {/* Mostrar notas de otros usuarios */}
+      {notes.filter(n => n.user_id !== currentUserId).map(note => (
+        <div key={note.id} className="text-sm flex gap-2 pt-1 bg-amber-200 p-2 rounded-md">
+          <p className="font-semibold">{note.user_profiles?.display_name || "Otro usuario"}:</p>
+          <p className="font-bold">{note.note}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+
 export function NoticesSection({ notices: initialNotices }: NoticesSectionProps) {
   const [notices, setNotices] = useState<PolicyNotice[]>(initialNotices)
   const [searchTerm, setSearchTerm] = useState("")
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
-  const [noteDialogOpen, setNoteDialogOpen] = useState(false)
   const [selectedNotice, setSelectedNotice] = useState<PolicyNotice | null>(null)
-  const [currentUserEmail, setCurrentUserEmail] = useState<string>("")
+  const [currentUser, setCurrentUser] = useState<{ id: string; email: string } | null>(null)
 
   useEffect(() => {
     const getUserAndSetupPolling = async () => {
       const userResult = await getCurrentUser()
-      if (userResult.data?.email) {
-        setCurrentUserEmail(userResult.data.email)
+      if (userResult.data) {
+        setCurrentUser({ id: userResult.data.id, email: userResult.data.email || "" })
       }
     }
 
     getUserAndSetupPolling()
 
-    const interval = setInterval(async () => {
-      const result = await getNoticesForDisplay()
-      if (result.data) {
-        setNotices(result.data)
-      }
-    }, 5000)
+const interval = setInterval(async () => {
+  const result = await getNoticesForDisplay()
+  if (result && result.data) {
+    setNotices(result.data)
+  } else if (result && result.error) {
+    console.warn("Error al refrescar los avisos:", result.error)
+  }
+}, 5000)
 
     return () => clearInterval(interval)
   }, [])
@@ -145,8 +222,8 @@ export function NoticesSection({ notices: initialNotices }: NoticesSectionProps)
                   ...notice,
                   status: newStatus,
                   notified_by:
-                    newStatus === "avisado"
-                      ? currentUserEmail.split("@")[0]
+                    newStatus === "avisado" && currentUser
+                      ? currentUser.email.split("@")[0]
                       : newStatus === "avisar"
                         ? null
                         : notice.notified_by,
@@ -166,25 +243,14 @@ export function NoticesSection({ notices: initialNotices }: NoticesSectionProps)
     setSelectedNotice(null)
   }
 
-  const handleNoteAdded = (noticeId: string, newNote: Note) => {
-    // 1. Creamos la nueva lista de avisos con la nota agregada
-    const updatedNotices = notices.map((n) =>
-      n.id === noticeId
-        ? { ...n, notice_notes: [...(n.notice_notes || []), newNote] }
-        : n,
-    )
-        // 2. Actualizamos el estado principal de los avisos
-        setNotices(updatedNotices)
+  const handleNoteUpdate = (noticeId: string, updatedNotes: Note[]) => {
+    setNotices((prevNotices) =>
+      prevNotices.map((n) =>
+        n.id === noticeId ? { ...n, notice_notes: updatedNotes } : n
+      )
+    );
+  };
 
-        // 3. Buscamos el aviso que acabamos de modificar en la nueva lista
-        const updatedNotice = updatedNotices.find((n) => n.id === noticeId)
-    
-        // 4. Si lo encontramos, actualizamos también el aviso seleccionado
-        //    para que el modal muestre la nueva nota inmediatamente.
-        if (updatedNotice) {
-          setSelectedNotice(updatedNotice)
-        }
-      }
 
   const renderNoticeCard = (notice: PolicyNotice) => {
     const daysUntilDue = getDaysUntilDue(notice.due_date)
@@ -192,7 +258,7 @@ export function NoticesSection({ notices: initialNotices }: NoticesSectionProps)
     const statusText = getStatusText(daysUntilDue)
 
     return (
-      <Card key={notice.id} className="hover:shadow-md transition-shadow">
+      <Card key={notice.id} className="hover:shadow-md transition-shadow flex flex-col">
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between">
             <div>
@@ -212,7 +278,7 @@ export function NoticesSection({ notices: initialNotices }: NoticesSectionProps)
             </Badge>
           </div>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-3 flex-1 flex flex-col">
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Rama:</span>
@@ -245,65 +311,65 @@ export function NoticesSection({ notices: initialNotices }: NoticesSectionProps)
             )}
           </div>
 
-          <div className="flex gap-2 pt-2 border-t">
-            {notice.status === "avisar" && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => handleStatusChange(notice.id, "avisado")}
-                className="flex-1 gap-1 bg-transparent"
-              >
-                <CheckCircle className="h-3 w-3" />
-                Avisado
-              </Button>
-            )}
+          <div className="flex-1" /> 
 
-            {notice.status === "avisado" && (
-              <>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleStatusChange(notice.id, "avisar")}
-                  className="gap-1 bg-transparent"
-                >
-                  <ArrowLeft className="h-3 w-3" />
-                  Avisar
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleStatusChange(notice.id, "pagado")}
-                  className="flex-1 gap-1 bg-transparent"
-                >
-                  <CheckCircle className="h-3 w-3" />
-                  Pagado
-                </Button>
-              </>
+          <div className="mt-auto">
+            {currentUser && (
+              <NoticeNote
+                noticeId={notice.id}
+                notes={notice.notice_notes}
+                currentUserId={currentUser.id}
+                onNoteUpdate={handleNoteUpdate}
+              />
             )}
+            <div className="flex gap-2 pt-2 border-t mt-3">
+                {notice.status === "avisar" && (
+                <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleStatusChange(notice.id, "avisado")}
+                    className="flex-1 gap-1 bg-transparent"
+                >
+                    <CheckCircle className="h-3 w-3" />
+                    Avisado
+                </Button>
+                )}
 
-            {notice.status === "pagado" && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => handleStatusChange(notice.id, "avisado")}
-                className="gap-1 bg-transparent"
-              >
-                <ArrowLeft className="h-3 w-3" />
-                Avisado
-              </Button>
-            )}
-            <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setSelectedNotice(notice);
-                  setNoteDialogOpen(true);
-                }}
-                className="gap-1 bg-transparent"
-              >
-                <MessageSquare className="h-3 w-3" />
-                Nota
-              </Button>
+                {notice.status === "avisado" && (
+                <>
+                    <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleStatusChange(notice.id, "avisar")}
+                    className="gap-1 bg-transparent"
+                    >
+                    <ArrowLeft className="h-3 w-3" />
+                    Avisar
+                    </Button>
+                    <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleStatusChange(notice.id, "pagado")}
+                    className="flex-1 gap-1 bg-transparent"
+                    >
+                    <CheckCircle className="h-3 w-3" />
+                    Pagado
+                    </Button>
+                </>
+                )}
+
+                {notice.status === "pagado" && (
+                <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleStatusChange(notice.id, "avisado")}
+                    className="flex-1 gap-1 bg-transparent"
+                >
+                    <ArrowLeft className="h-3 w-3" />
+                    Avisado
+                </Button>
+                )}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -394,13 +460,6 @@ export function NoticesSection({ notices: initialNotices }: NoticesSectionProps)
         onOpenChange={setPaymentDialogOpen}
         notice={selectedNotice}
         onSuccess={handlePaymentComplete}
-      />
-      {/* Note Dialog */}
-      <NoteDialog
-        open={noteDialogOpen}
-        onOpenChange={setNoteDialogOpen}
-        notice={selectedNotice}
-        onSuccess={handleNoteAdded}
       />
     </div>
   )

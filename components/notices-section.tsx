@@ -42,7 +42,7 @@ function NoticeNote({ noticeId, notes, currentUserId, onNoteUpdate }: { noticeId
   const [noteText, setNoteText] = useState("")
   const [isLoading, setIsLoading] = useState(false)
 
-  const userNote = useMemo(() => notes.find((n) => n.user_id === currentUserId), [notes, currentUserId])
+  const userNote = useMemo(() => (notes || []).find((n) => n.user_id === currentUserId), [notes, currentUserId])
 
   useEffect(() => {
     setNoteText(userNote?.note || "")
@@ -114,7 +114,7 @@ function NoticeNote({ noticeId, notes, currentUserId, onNoteUpdate }: { noticeId
         </Button>
       )}
       {/* Mostrar notas de otros usuarios */}
-      {notes.filter(n => n.user_id !== currentUserId).map(note => (
+      {(notes || []).filter(n => n.user_id !== currentUserId).map(note => (
         <div key={note.id} className="text-sm flex gap-2 pt-1 bg-amber-200 p-2 rounded-md">
           <p className="font-semibold">{note.user_profiles?.display_name || "Otro usuario"}:</p>
           <p className="font-bold">{note.note}</p>

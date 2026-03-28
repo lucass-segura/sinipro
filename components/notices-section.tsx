@@ -1,13 +1,9 @@
 "use client"
 
-import { useState, useMemo, useEffect } from "react"
-import { Input } from "@/components/ui/input"
+import { useState, useMemo, useEffect, useCallback } from "react"
 import { Textarea } from "@/components/ui/textarea"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
-  Search,
   AlertTriangle,
   CheckCircle,
   Clock,
@@ -18,25 +14,29 @@ import {
   Save,
   Trash2,
   X,
-  Edit,
   Loader2,
+  LayoutGrid,
+  List,
 } from "lucide-react"
 import { PaymentDialog } from "@/components/payment-dialog"
+import { FiltersPanel } from "@/components/avisos/filters-panel"
 import {
   updateNoticeStatus,
   getCurrentUser,
-  getNoticesForDisplay,
+  getNoticesFiltered,
   upsertNoticeNote,
   deleteNoticeNote,
 } from "@/app/actions/notices"
 
-import type { Note, PolicyNotice } from "@/types/index"
+import type { Note, NoticeFilters, PolicyNotice } from "@/types/index"
 
 interface NoticesSectionProps {
   notices: PolicyNotice[]
+  companies: { id: string; name: string }[]
 }
 
-// NUEVO COMPONENTE INTERNO para manejar la lógica de la nota
+// ─── Note component ──────────────────────────────────────────────────────────
+
 function NoticeNote({ noticeId, notes, currentUserId, onNoteUpdate }: { noticeId: string; notes: Note[]; currentUserId: string; onNoteUpdate: (noticeId: string, notes: Note[]) => void }) {
   const [isEditing, setIsEditing] = useState(false)
   const [noteText, setNoteText] = useState("")
@@ -49,11 +49,12 @@ function NoticeNote({ noticeId, notes, currentUserId, onNoteUpdate }: { noticeId
   }, [userNote])
 
   const handleSave = async () => {
+    if (!noteText.trim()) return
     setIsLoading(true)
-    const result = await upsertNoticeNote(noticeId, noteText, userNote?.id)
+    const result = await upsertNoticeNote(noticeId, noteText.trim())
     if (result.data) {
       const updatedNotes = userNote
-        ? notes.map((n) => (n.id === userNote.id ? result.data : n))
+        ? notes.map((n) => (n.id === userNote.id ? result.data! : n))
         : [...notes, result.data]
       onNoteUpdate(noticeId, updatedNotes)
       setIsEditing(false)
@@ -74,133 +75,313 @@ function NoticeNote({ noticeId, notes, currentUserId, onNoteUpdate }: { noticeId
   }
 
   return (
-    <div className="pt-3 border-t mt-3 space-y-2">
-      <h4 className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-        <MessageSquare className="h-4 w-4" />
+    <div className="pt-2 border-t mt-2 space-y-1.5">
+      <h4 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--sp-text-muted)" }}>
+        <MessageSquare className="h-3 w-3" />
         Notas
       </h4>
       {isEditing ? (
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           <Textarea
             value={noteText}
             onChange={(e) => setNoteText(e.target.value)}
             placeholder="Escribe tu nota aquí..."
-            className="text-sm"
+            className="text-xs min-h-[48px]"
             rows={2}
             disabled={isLoading}
           />
-          <div className="flex gap-2 justify-end">
-            <Button size="sm" variant="ghost" onClick={() => setIsEditing(false)} disabled={isLoading}>
-              <X className="h-4 w-4" />
+          <div className="flex gap-1.5 justify-end">
+            <Button size="sm" variant="ghost" onClick={() => setIsEditing(false)} disabled={isLoading} className="h-6 w-6 p-0" style={{ cursor: "pointer" }}>
+              <X className="h-3 w-3" />
             </Button>
-            <Button size="sm" onClick={handleSave} disabled={isLoading}>
-              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            <Button size="sm" onClick={handleSave} disabled={isLoading} className="h-6 w-6 p-0" style={{ cursor: "pointer" }}>
+              {isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
             </Button>
           </div>
         </div>
       ) : userNote ? (
-        <div className="group text-sm flex gap-2 text-foreground bg-amber-200 p-2 rounded-md">
-          <p className="font-semibold">{userNote.user_profiles?.display_name || "Tú"}:</p>
-          <p className="whitespace-pre-wrap font-bold">{userNote.note}</p>
-          <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-            <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={handleDelete}>
-              <Trash2 className="h-3 w-3" />
-            </Button>
+        <div
+          className="group flex items-start gap-1.5 px-2 py-1.5 rounded-md text-[10px]"
+          style={{ backgroundColor: "var(--sp-amber-soft)", borderLeft: "2px solid var(--sp-amber)" }}
+        >
+          <div className="flex-1 min-w-0">
+            <span className="font-semibold" style={{ color: "var(--sp-amber)" }}>{userNote.user_profiles?.display_name || "Tú"}:</span>{" "}
+            <span className="italic" style={{ color: "var(--sp-amber)" }}>{userNote.note}</span>
           </div>
+          <button
+            onClick={handleDelete}
+            className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+            style={{ cursor: "pointer", background: "none", border: "none", padding: 0, color: "var(--sp-red)" }}
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
         </div>
       ) : (
-        <Button size="sm" variant="outline" className="w-full bg-transparent" onClick={() => setIsEditing(true)}>
-          Agregar Nota
-        </Button>
+        <button
+          onClick={() => setIsEditing(true)}
+          className="w-full text-[10px] py-1.5 rounded-md transition-colors"
+          style={{
+            cursor: "pointer",
+            color: "var(--sp-text-faint)",
+            backgroundColor: "var(--sp-surface-low)",
+            border: "1px solid var(--sp-border)",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--sp-border-strong)" }}
+          onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--sp-border)" }}
+        >
+          + Agregar nota
+        </button>
       )}
-      {/* Mostrar notas de otros usuarios */}
+      {/* Other users' notes */}
       {(notes || []).filter(n => n.user_id !== currentUserId).map(note => (
-        <div key={note.id} className="text-sm flex gap-2 pt-1 bg-amber-200 p-2 rounded-md">
-          <p className="font-semibold">{note.user_profiles?.display_name || "Otro usuario"}:</p>
-          <p className="font-bold">{note.note}</p>
+        <div
+          key={note.id}
+          className="flex items-start gap-1.5 px-2 py-1.5 rounded-md text-[10px]"
+          style={{ backgroundColor: "var(--sp-surface-low)", border: "1px solid var(--sp-border)" }}
+        >
+          <span className="font-semibold" style={{ color: "var(--sp-text-muted)" }}>{note.user_profiles?.display_name || "Otro"}:</span>{" "}
+          <span style={{ color: "var(--sp-text-muted)" }}>{note.note}</span>
         </div>
       ))}
     </div>
   )
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-export function NoticesSection({ notices: initialNotices }: NoticesSectionProps) {
+function getDaysUntilDue(dueDate: string) {
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const due = new Date(dueDate + "T00:00:00"); due.setHours(0, 0, 0, 0)
+  return Math.round((due.getTime() - today.getTime()) / 86400000)
+}
+
+function dueLabel(days: number) {
+  if (days < 0) return `Vencido hace ${Math.abs(days)}d`
+  if (days === 0) return "Vence hoy"
+  if (days === 1) return "Mañana"
+  return `En ${days} días`
+}
+
+function dueColor(days: number) {
+  if (days < 0)  return "var(--sp-red)"
+  if (days <= 7) return "var(--sp-amber)"
+  return "var(--sp-text-muted)"
+}
+
+// ─── Notice Card ──────────────────────────────────────────────────────────────
+
+function NoticeCard({
+  notice,
+  currentUser,
+  onStatusChange,
+  onNoteUpdate,
+}: {
+  notice: PolicyNotice
+  currentUser: { id: string; email: string } | null
+  onStatusChange: (id: string, status: "avisar" | "avisado" | "pagado") => void
+  onNoteUpdate: (noticeId: string, notes: Note[]) => void
+}) {
+  const days = getDaysUntilDue(notice.due_date)
+  const client = notice.policies.clients
+  const branch = notice.policies.branch
+  const due = dueColor(days)
+
+  const initials = client.full_name
+    .split(" ")
+    .map((w: string) => w[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase()
+
+  return (
+    <article
+      className="rounded-lg transition-all"
+      style={{
+        backgroundColor: "var(--sp-surface)",
+        border: "1px solid var(--sp-border)",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = "var(--sp-border-strong)"
+        e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.06)"
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = "var(--sp-border)"
+        e.currentTarget.style.boxShadow = "none"
+      }}
+    >
+      <div className="p-3">
+        {/* Row 1: Client name + avatar */}
+        <div className="flex items-center justify-between mb-1.5">
+          <h4 className="text-[13px] font-semibold leading-tight truncate" style={{ color: "var(--sp-text)" }}>
+            {client.full_name}
+          </h4>
+          <div
+            className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 ml-2"
+            style={{
+              backgroundColor: "var(--sp-surface-lowest)",
+              border: "1px solid var(--sp-border)",
+            }}
+          >
+            <span className="text-[8px] font-bold" style={{ color: "var(--sp-text-muted)" }}>
+              {initials}
+            </span>
+          </div>
+        </div>
+
+        {/* Row 2: Summary line */}
+        <p className="text-[11px] line-clamp-1 mb-1.5" style={{ color: "var(--sp-text-muted)" }}>
+          {notice.policies.companies.name}
+          {notice.policies.policy_number ? ` · #${notice.policies.policy_number}` : ""}
+          {notice.policies.vehicle_plate ? ` · ${notice.policies.vehicle_plate}` : ""}
+        </p>
+
+        {/* Row 3: Branch + due + locality */}
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-1.5">
+            <span
+              className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded"
+              style={{ backgroundColor: "var(--sp-surface-low)", color: "var(--sp-text-muted)", border: "1px solid var(--sp-border)" }}
+            >
+              {branch}
+            </span>
+            {client.locality && (
+              <span className="flex items-center gap-0.5 text-[10px]" style={{ color: "var(--sp-text-faint)" }}>
+                <MapPin className="h-2.5 w-2.5" />
+                {client.locality}
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] font-semibold" style={{ color: due }}>
+            {dueLabel(days)}
+          </span>
+        </div>
+
+        {/* Notified by */}
+        {notice.notified_by && (notice.status === "avisado" || notice.status === "pagado") && (
+          <div className="flex items-center gap-1 mb-2 text-[10px]" style={{ color: "var(--sp-text-faint)" }}>
+            <User className="h-3 w-3" />
+            <span>Avisado por {notice.notified_by}</span>
+          </div>
+        )}
+
+        {/* Notes */}
+        {currentUser && (
+          <NoticeNote
+            noticeId={notice.id}
+            notes={notice.notice_notes || []}
+            currentUserId={currentUser.id}
+            onNoteUpdate={onNoteUpdate}
+          />
+        )}
+
+        {/* Footer: action buttons */}
+        <div className="flex gap-1.5 pt-2 mt-2" style={{ borderTop: "1px solid var(--sp-border)" }}>
+          {notice.status === "avisar" && (
+            <button
+              onClick={() => onStatusChange(notice.id, "avisado")}
+              className="flex-1 flex items-center justify-center gap-1 text-[10px] font-semibold py-1.5 rounded-md transition-colors"
+              style={{ cursor: "pointer", color: "var(--sp-accent)", backgroundColor: "rgba(77,142,255,0.08)" }}
+              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "rgba(77,142,255,0.18)" }}
+              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "rgba(77,142,255,0.08)" }}
+            >
+              <CheckCircle className="h-3 w-3" />
+              Avisado
+            </button>
+          )}
+          {notice.status === "avisado" && (
+            <>
+              <button
+                onClick={() => onStatusChange(notice.id, "avisar")}
+                className="flex items-center justify-center gap-1 text-[10px] font-semibold py-1.5 px-2.5 rounded-md transition-colors"
+                style={{ cursor: "pointer", color: "var(--sp-text-faint)", backgroundColor: "rgba(180,180,200,0.06)" }}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "rgba(180,180,200,0.14)" }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "rgba(180,180,200,0.06)" }}
+              >
+                <ArrowLeft className="h-3 w-3" />
+                Avisar
+              </button>
+              <button
+                onClick={() => onStatusChange(notice.id, "pagado")}
+                className="flex-1 flex items-center justify-center gap-1 text-[10px] font-semibold py-1.5 rounded-md transition-colors"
+                style={{ cursor: "pointer", color: "var(--sp-green)", backgroundColor: "rgba(74,225,118,0.08)" }}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "rgba(74,225,118,0.18)" }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "rgba(74,225,118,0.08)" }}
+              >
+                <CheckCircle className="h-3 w-3" />
+                Pagado
+              </button>
+            </>
+          )}
+          {notice.status === "pagado" && (
+            <button
+              onClick={() => onStatusChange(notice.id, "avisado")}
+              className="flex-1 flex items-center justify-center gap-1 text-[10px] font-semibold py-1.5 rounded-md transition-colors"
+              style={{ cursor: "pointer", color: "var(--sp-text-faint)", backgroundColor: "rgba(180,180,200,0.06)" }}
+              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "rgba(180,180,200,0.14)" }}
+              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "rgba(180,180,200,0.06)" }}
+            >
+              <ArrowLeft className="h-3 w-3" />
+              Avisado
+            </button>
+          )}
+        </div>
+      </div>
+    </article>
+  )
+}
+
+// ─── Column config ───────────────────────────────────────────────────────────
+
+const COLUMNS = [
+  { key: "avisar" as const, label: "Avisar", dot: "#f59e0b", icon: AlertTriangle },
+  { key: "avisado" as const, label: "Avisados", dot: "#4d8eff", icon: Clock },
+  { key: "pagado" as const, label: "Pagados", dot: "#4ae176", icon: CheckCircle },
+]
+
+// ─── Main Section ─────────────────────────────────────────────────────────────
+
+export function NoticesSection({ notices: initialNotices, companies }: NoticesSectionProps) {
   const [notices, setNotices] = useState<PolicyNotice[]>(initialNotices)
-  const [searchTerm, setSearchTerm] = useState("")
+  const [filters, setFilters] = useState<NoticeFilters>({})
+  const [view, setView] = useState<"kanban" | "list">(() => {
+    if (typeof window === "undefined") return "kanban"
+    return (localStorage.getItem("sp-notices-view") as "kanban" | "list") ?? "kanban"
+  })
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
   const [selectedNotice, setSelectedNotice] = useState<PolicyNotice | null>(null)
   const [currentUser, setCurrentUser] = useState<{ id: string; email: string } | null>(null)
 
-  useEffect(() => {
-    const getUserAndSetupPolling = async () => {
-      const userResult = await getCurrentUser()
-      if (userResult.data) {
-        setCurrentUser({ id: userResult.data.id, email: userResult.data.email || "" })
-      }
-    }
-
-    getUserAndSetupPolling()
-
-const interval = setInterval(async () => {
-  const result = await getNoticesForDisplay()
-  if (result && result.data) {
-    setNotices(result.data)
-  } else if (result && result.error) {
-    console.warn("Error al refrescar los avisos:", result.error)
+  const handleSetView = (v: "kanban" | "list") => {
+    setView(v)
+    if (typeof window !== "undefined") localStorage.setItem("sp-notices-view", v)
   }
-}, 5000)
 
-    return () => clearInterval(interval)
+  useEffect(() => {
+    getCurrentUser().then((r) => {
+      if (r.data) setCurrentUser({ id: r.data.id, email: r.data.email || "" })
+    })
   }, [])
 
-  const filteredNotices = useMemo(() => {
-    if (!searchTerm) return notices
+  // Polling every 30s
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const result = await getNoticesFiltered(filters)
+      if (result?.data) setNotices(result.data)
+    }, 30000)
+    return () => clearInterval(interval)
+  }, [filters])
 
-    const term = searchTerm.toLowerCase()
-    return notices.filter(
-      (notice) =>
-        notice.policies.clients.full_name.toLowerCase().includes(term) ||
-        notice.policies.companies.name.toLowerCase().includes(term) ||
-        notice.policies.branch.toLowerCase().includes(term) ||
-        notice.policies.vehicle_plate?.toLowerCase().includes(term) ||
-        notice.policies.clients.locality?.toLowerCase().includes(term),
-    )
-  }, [notices, searchTerm])
+  const handleFiltersChange = useCallback(async (newFilters: NoticeFilters) => {
+    setFilters(newFilters)
+    const result = await getNoticesFiltered(newFilters)
+    if (result?.data) setNotices(result.data)
+  }, [])
 
-  const groupedNotices = useMemo(() => {
-    const avisar = filteredNotices.filter((notice) => notice.status === "avisar")
-    const avisados = filteredNotices.filter((notice) => notice.status === "avisado")
-    const pagados = filteredNotices.filter((notice) => notice.status === "pagado")
-
-    return { avisar, avisados, pagados }
-  }, [filteredNotices])
-
-  const getDaysUntilDue = (dueDate: string) => {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0) // Normalizar a medianoche
-
-    const due = new Date(dueDate + "T00:00:00") // Forzar zona horaria local
-    due.setHours(0, 0, 0, 0) // Normalizar a medianoche
-
-    const diffTime = due.getTime() - today.getTime()
-    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24))
-    return diffDays
-  }
-
-  const getStatusColor = (daysUntilDue: number) => {
-    if (daysUntilDue < 0) return "bg-red-100 text-red-800 border-red-200"
-    if (daysUntilDue <= 7) return "bg-orange-100 text-orange-800 border-orange-200"
-    if (daysUntilDue <= 15) return "bg-yellow-100 text-yellow-800 border-yellow-200"
-    return "bg-green-100 text-green-800 border-green-200"
-  }
-
-  const getStatusText = (daysUntilDue: number) => {
-    if (daysUntilDue < 0) return `Vencido hace ${Math.abs(daysUntilDue)} días`
-    if (daysUntilDue === 0) return "Vence hoy"
-    if (daysUntilDue === 1) return "Vence mañana"
-    return `Vence en ${daysUntilDue} días`
-  }
+  const grouped = useMemo(() => ({
+    avisar: notices.filter((n) => n.status === "avisar"),
+    avisado: notices.filter((n) => n.status === "avisado"),
+    pagado: notices.filter((n) => n.status === "pagado"),
+  }), [notices])
 
   const handleStatusChange = async (noticeId: string, newStatus: "avisar" | "avisado" | "pagado") => {
     if (newStatus === "pagado") {
@@ -215,20 +396,20 @@ const interval = setInterval(async () => {
     try {
       const result = await updateNoticeStatus(noticeId, newStatus)
       if (result.data) {
-        setNotices(
-          notices.map((notice) =>
-            notice.id === noticeId
+        setNotices((prev) =>
+          prev.map((n) =>
+            n.id === noticeId
               ? {
-                  ...notice,
+                  ...n,
                   status: newStatus,
                   notified_by:
                     newStatus === "avisado" && currentUser
                       ? currentUser.email.split("@")[0]
                       : newStatus === "avisar"
                         ? null
-                        : notice.notified_by,
+                        : n.notified_by,
                 }
-              : notice,
+              : n,
           ),
         )
       }
@@ -238,220 +419,215 @@ const interval = setInterval(async () => {
   }
 
   const handlePaymentComplete = (updatedNotice: PolicyNotice) => {
-    setNotices(notices.map((notice) => (notice.id === updatedNotice.id ? updatedNotice : notice)))
+    setNotices((prev) => prev.map((n) => (n.id === updatedNotice.id ? updatedNotice : n)))
     setPaymentDialogOpen(false)
     setSelectedNotice(null)
   }
 
   const handleNoteUpdate = (noticeId: string, updatedNotes: Note[]) => {
-    setNotices((prevNotices) =>
-      prevNotices.map((n) =>
+    setNotices((prev) =>
+      prev.map((n) =>
         n.id === noticeId ? { ...n, notice_notes: updatedNotes } : n
       )
-    );
-  };
-
-
-  const renderNoticeCard = (notice: PolicyNotice) => {
-    const daysUntilDue = getDaysUntilDue(notice.due_date)
-    const statusColor = getStatusColor(daysUntilDue)
-    const statusText = getStatusText(daysUntilDue)
-
-    return (
-      <Card key={notice.id} className="hover:shadow-md transition-shadow flex flex-col">
-        <CardHeader className="pb-3">
-          <div className="flex items-start justify-between">
-            <div>
-              <CardTitle className="text-base">{notice.policies.clients.full_name}</CardTitle>
-              <p className="text-sm text-muted-foreground">{notice.policies.companies.name}</p>
-              {notice.policies.clients.locality && (
-              <div className="flex justify-between text-sm items-center">
-                <span className="font-medium text-muted-foreground flex items-center gap-1">
-                  <MapPin className="h-3 w-3" />
-                  {notice.policies.clients.locality}
-                </span>
-              </div>
-            )}
-            </div>
-            <Badge variant="outline" className={statusColor}>
-              {statusText}
-            </Badge>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3 flex-1 flex flex-col">
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Rama:</span>
-              <span className="font-medium">{notice.policies.branch}</span>
-            </div>
-            {notice.policies.vehicle_plate && (
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Patente:</span>
-                <span className="font-medium">{notice.policies.vehicle_plate}</span>
-              </div>
-            )}
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Vencimiento:</span>
-              <span className="font-medium">{new Date(notice.due_date + "T00:00:00").toLocaleDateString("es-ES")}</span>
-            </div>
-            {notice.policies.clients.phone && (
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Teléfono:</span>
-                <span className="font-medium">{notice.policies.clients.phone}</span>
-              </div>
-            )}
-            {notice.notified_by && (notice.status === "avisado" || notice.status === "pagado") && (
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Avisado por:</span>
-                <span className="font-medium flex items-center gap-1">
-                  <User className="h-3 w-3" />
-                  {notice.notified_by}
-                </span>
-              </div>
-            )}
-          </div>
-
-          <div className="flex-1" /> 
-
-          <div className="mt-auto">
-            {currentUser && (
-              <NoticeNote
-                noticeId={notice.id}
-                notes={notice.notice_notes}
-                currentUserId={currentUser.id}
-                onNoteUpdate={handleNoteUpdate}
-              />
-            )}
-            <div className="flex gap-2 pt-2 border-t mt-3">
-                {notice.status === "avisar" && (
-                <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleStatusChange(notice.id, "avisado")}
-                    className="flex-1 gap-1 bg-transparent"
-                >
-                    <CheckCircle className="h-3 w-3" />
-                    Avisado
-                </Button>
-                )}
-
-                {notice.status === "avisado" && (
-                <>
-                    <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleStatusChange(notice.id, "avisar")}
-                    className="gap-1 bg-transparent"
-                    >
-                    <ArrowLeft className="h-3 w-3" />
-                    Avisar
-                    </Button>
-                    <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleStatusChange(notice.id, "pagado")}
-                    className="flex-1 gap-1 bg-transparent"
-                    >
-                    <CheckCircle className="h-3 w-3" />
-                    Pagado
-                    </Button>
-                </>
-                )}
-
-                {notice.status === "pagado" && (
-                <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleStatusChange(notice.id, "avisado")}
-                    className="flex-1 gap-1 bg-transparent"
-                >
-                    <ArrowLeft className="h-3 w-3" />
-                    Avisado
-                </Button>
-                )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
     )
   }
 
   return (
-    <div className="space-y-6">
-      {/* Search */}
-      <div className="flex justify-start">
-        <div className="relative w-full max-w-md">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-          <Input
-            placeholder="Buscar avisos..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
+    <div className="flex flex-col h-full">
+      {/* Filter bar */}
+      <div
+        className="shrink-0 px-6 py-4"
+        style={{ backgroundColor: "var(--sp-surface-lowest)", borderBottom: "1px solid var(--sp-border)" }}
+      >
+        <FiltersPanel companies={companies} filters={filters} onChange={handleFiltersChange} />
+      </div>
+
+      {/* Toolbar: total + view toggle */}
+      <div className="flex items-center justify-between px-6 py-2.5 shrink-0">
+        <span className="text-xs font-medium" style={{ color: "var(--sp-text-faint)" }}>
+          {notices.length} avisos
+        </span>
+
+        <div
+          className="flex p-0.5 rounded-lg"
+          style={{ backgroundColor: "var(--sp-surface-low)", border: "1px solid var(--sp-border)" }}
+        >
+          <button
+            onClick={() => handleSetView("kanban")}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all"
+            style={{
+              cursor: "pointer",
+              ...(view === "kanban"
+                ? { backgroundColor: "var(--sp-accent)", color: "#fff" }
+                : { color: "var(--sp-text-muted)" }),
+            }}
+          >
+            <LayoutGrid className="h-3 w-3" />
+            Kanban
+          </button>
+          <button
+            onClick={() => handleSetView("list")}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all"
+            style={{
+              cursor: "pointer",
+              ...(view === "list"
+                ? { backgroundColor: "var(--sp-accent)", color: "#fff" }
+                : { color: "var(--sp-text-muted)" }),
+            }}
+          >
+            <List className="h-3 w-3" />
+            Lista
+          </button>
         </div>
       </div>
 
-      {/* Columns */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Avisar Column */}
-        <div className="space-y-4">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-orange-600" />
-            <h2 className="text-xl font-semibold text-foreground">Avisar ({groupedNotices.avisar.length})</h2>
-          </div>
-          <div className="space-y-3">
-            {groupedNotices.avisar.length === 0 ? (
-              <Card>
-                <CardContent className="flex flex-col items-center justify-center py-8">
-                  <AlertTriangle className="h-8 w-8 text-muted-foreground mb-2" />
-                  <p className="text-sm text-muted-foreground text-center">No hay avisos pendientes</p>
-                </CardContent>
-              </Card>
-            ) : (
-              groupedNotices.avisar.map(renderNoticeCard)
-            )}
-          </div>
-        </div>
+      {/* Board / List */}
+      <div className="flex-1 min-h-0 px-5 pb-4">
+        {view === "kanban" && (
+          <div className="grid gap-4 grid-cols-3 h-full">
+            {COLUMNS.map(({ key, label, dot }) => (
+              <div
+                key={key}
+                className="flex flex-col min-h-0 rounded-xl"
+                style={{ backgroundColor: "var(--sp-surface-low)", border: "1px solid var(--sp-border)" }}
+              >
+                {/* Column header */}
+                <div
+                  className="flex items-center justify-between px-4 py-2.5 shrink-0"
+                  style={{ borderBottom: "1px solid var(--sp-border)" }}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: dot }} />
+                    <h3 className="text-xs font-semibold" style={{ color: "var(--sp-text)" }}>
+                      {label}
+                    </h3>
+                  </div>
+                  <span
+                    className="text-[11px] font-bold px-2 py-0.5 rounded-full"
+                    style={{ color: "var(--sp-text-muted)", backgroundColor: "var(--sp-surface-hover)" }}
+                  >
+                    {grouped[key].length}
+                  </span>
+                </div>
 
-        {/* Avisados Column */}
-        <div className="space-y-4">
-          <div className="flex items-center gap-2">
-            <Clock className="h-5 w-5 text-blue-600" />
-            <h2 className="text-xl font-semibold text-foreground">Avisados ({groupedNotices.avisados.length})</h2>
+                {/* Scrollable card area */}
+                <div className="flex-1 overflow-y-auto p-2.5 space-y-2">
+                  {grouped[key].length === 0 ? (
+                    <div className="flex items-center justify-center py-10">
+                      <p className="text-xs" style={{ color: "var(--sp-text-faint)" }}>Sin avisos</p>
+                    </div>
+                  ) : (
+                    grouped[key].map((n) => (
+                      <NoticeCard
+                        key={n.id}
+                        notice={n}
+                        currentUser={currentUser}
+                        onStatusChange={handleStatusChange}
+                        onNoteUpdate={handleNoteUpdate}
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
-          <div className="space-y-3">
-            {groupedNotices.avisados.length === 0 ? (
-              <Card>
-                <CardContent className="flex flex-col items-center justify-center py-8">
-                  <Clock className="h-8 w-8 text-muted-foreground mb-2" />
-                  <p className="text-sm text-muted-foreground text-center">No hay clientes avisados</p>
-                </CardContent>
-              </Card>
-            ) : (
-              groupedNotices.avisados.map(renderNoticeCard)
-            )}
-          </div>
-        </div>
+        )}
 
-        {/* Pagados Column */}
-        <div className="space-y-4">
-          <div className="flex items-center gap-2">
-            <CheckCircle className="h-5 w-5 text-green-600" />
-            <h2 className="text-xl font-semibold text-foreground">Pagados ({groupedNotices.pagados.length})</h2>
-          </div>
-          <div className="space-y-3">
-            {groupedNotices.pagados.length === 0 ? (
-              <Card>
-                <CardContent className="flex flex-col items-center justify-center py-8">
-                  <CheckCircle className="h-8 w-8 text-muted-foreground mb-2" />
-                  <p className="text-sm text-muted-foreground text-center">No hay pagos registrados</p>
-                </CardContent>
-              </Card>
-            ) : (
-              groupedNotices.pagados.map(renderNoticeCard)
-            )}
-          </div>
-        </div>
+        {view === "list" && (
+          notices.length === 0 ? (
+            <div
+              className="rounded-lg py-16 flex items-center justify-center"
+              style={{ border: "1px dashed var(--sp-border-strong)" }}
+            >
+              <p className="text-sm" style={{ color: "var(--sp-text-faint)" }}>
+                No hay avisos que coincidan con los filtros
+              </p>
+            </div>
+          ) : (
+            <div
+              className="rounded-xl overflow-y-auto h-full"
+              style={{ border: "1px solid var(--sp-border)" }}
+            >
+              {notices.map((n, idx) => {
+                const days = getDaysUntilDue(n.due_date)
+                const client = n.policies.clients
+                const due = dueColor(days)
+                return (
+                  <div
+                    key={n.id}
+                    className="flex items-center gap-4 px-5 py-3 transition-all"
+                    style={{
+                      cursor: "pointer",
+                      backgroundColor: "var(--sp-surface)",
+                      borderBottom: idx < notices.length - 1 ? "1px solid var(--sp-border)" : undefined,
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--sp-surface-hover)")}
+                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "var(--sp-surface)")}
+                  >
+                    <div
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: COLUMNS.find(c => c.key === n.status)?.dot }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <span className="font-semibold text-sm" style={{ color: "var(--sp-text)" }}>
+                        {client.full_name}
+                      </span>
+                      <div className="flex items-center gap-2 text-[11px]" style={{ color: "var(--sp-text-muted)" }}>
+                        <span>{n.policies.companies.name}</span>
+                        {n.policies.policy_number && <span>· #{n.policies.policy_number}</span>}
+                        {n.policies.vehicle_plate && <span className="font-mono uppercase">· {n.policies.vehicle_plate}</span>}
+                      </div>
+                    </div>
+                    <span
+                      className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0"
+                      style={{ backgroundColor: "var(--sp-surface-low)", color: "var(--sp-text-muted)", border: "1px solid var(--sp-border)" }}
+                    >
+                      {n.policies.branch}
+                    </span>
+                    <span className="text-xs font-semibold shrink-0" style={{ color: due }}>
+                      {dueLabel(days)}
+                    </span>
+                    <div className="shrink-0">
+                      {n.status === "avisar" && (
+                        <button
+                          onClick={() => handleStatusChange(n.id, "avisado")}
+                          className="text-[10px] font-semibold px-2.5 py-1 rounded-md transition-colors"
+                          style={{ cursor: "pointer", color: "var(--sp-accent)", backgroundColor: "rgba(77,142,255,0.08)" }}
+                          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "rgba(77,142,255,0.18)" }}
+                          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "rgba(77,142,255,0.08)" }}
+                        >
+                          Avisar
+                        </button>
+                      )}
+                      {n.status === "avisado" && (
+                        <button
+                          onClick={() => handleStatusChange(n.id, "pagado")}
+                          className="text-[10px] font-semibold px-2.5 py-1 rounded-md transition-colors"
+                          style={{ cursor: "pointer", color: "var(--sp-green)", backgroundColor: "rgba(74,225,118,0.08)" }}
+                          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "rgba(74,225,118,0.18)" }}
+                          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "rgba(74,225,118,0.08)" }}
+                        >
+                          Pago
+                        </button>
+                      )}
+                      {n.status === "pagado" && (
+                        <button
+                          onClick={() => handleStatusChange(n.id, "avisado")}
+                          className="text-[10px] font-semibold px-2.5 py-1 rounded-md transition-colors"
+                          style={{ cursor: "pointer", color: "var(--sp-text-faint)", backgroundColor: "rgba(180,180,200,0.06)" }}
+                          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "rgba(180,180,200,0.14)" }}
+                          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "rgba(180,180,200,0.06)" }}
+                        >
+                          Revertir
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        )}
       </div>
 
       {/* Payment Dialog */}

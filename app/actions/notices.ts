@@ -2,8 +2,8 @@
 
 import { createServerClient } from "@/lib/supabase/server"
 import { revalidatePath } from "next/cache"
+import type { NoticeFilters } from "@/types"
 
-// Function to update the status of a notice
 export async function updateNoticeStatus(noticeId: string, status: "avisar" | "avisado" | "pagado") {
   try {
     const supabase = await createServerClient()
@@ -13,61 +13,54 @@ export async function updateNoticeStatus(noticeId: string, status: "avisar" | "a
       error: userError,
     } = await supabase.auth.getUser()
 
-    if (userError || !user) {
-      return { error: "Usuario no autenticado" }
-    }
+    if (userError || !user) return { error: "Usuario no autenticado" }
 
-    // Prepare data for update with logic for notified_by
-    const updateData: any = { status }
+    const updateData: Record<string, unknown> = { status }
 
     if (status === "avisado") {
-      const { data: profile } = await supabase.from("user_profiles").select("display_name").eq("id", user.id).single()
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("display_name")
+        .eq("id", user.id)
+        .single()
 
-      if (profile?.display_name) {
-        updateData.notified_by = profile.display_name
-      } else {
-        // Fallback al email si no hay perfil
-        const userName = user.email?.split("@")[0] || "Usuario"
-        updateData.notified_by = userName
-      }
+      updateData.notified_by = profile?.display_name || user.email?.split("@")[0] || "Usuario"
     } else if (status === "avisar") {
-      // Clear information of who notified when status is set to "avisar"
       updateData.notified_by = null
     }
-    // Maintain information of who notified when status is set to "pagado"
 
     if (status === "avisado") {
-      // Get the current notice to verify if it's in "pagado" status
       const { data: currentNotice, error: currentError } = await supabase
         .from("policy_notices")
         .select("*, policies(id)")
         .eq("id", noticeId)
         .single()
 
-      if (currentError || !currentNotice) {
-        return { error: "Error al obtener el aviso actual" }
-      }
+      if (currentError || !currentNotice) return { error: "Error al obtener el aviso actual" }
 
-      // If the current notice is in "pagado" status, find and delete the future notice
+      // Soft delete future pending notice if reverting from "pagado"
       if (currentNotice.status === "pagado") {
-        const { data: futureNotices, error: futureError } = await supabase
+        const { data: futureNotices } = await supabase
           .from("policy_notices")
           .select("*")
           .eq("policy_id", currentNotice.policies.id)
           .gt("due_date", currentNotice.due_date)
           .eq("status", "avisar")
+          .is("deleted_at", null)
 
-        if (!futureError && futureNotices && futureNotices.length > 0) {
+        if (futureNotices && futureNotices.length > 0) {
           const nextNotice = futureNotices.sort(
-            (a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime(),
+            (a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime()
           )[0]
-
-          await supabase.from("policy_notices").delete().eq("id", nextNotice.id)
+          // Soft delete instead of hard delete
+          await supabase
+            .from("policy_notices")
+            .update({ deleted_at: new Date().toISOString() })
+            .eq("id", nextNotice.id)
         }
       }
     }
 
-    // Use updateData that includes notified_by
     const { data, error } = await supabase
       .from("policy_notices")
       .update(updateData)
@@ -75,68 +68,41 @@ export async function updateNoticeStatus(noticeId: string, status: "avisar" | "a
       .select()
       .single()
 
-    if (error) {
-      return { error: "Error al actualizar el estado del aviso" }
-    }
+    if (error) return { error: "Error al actualizar el estado del aviso" }
 
     revalidatePath("/avisos")
+    revalidatePath("/dashboard")
     return { data }
-  } catch (error) {
+  } catch {
     return { error: "Error inesperado al actualizar el estado" }
   }
 }
 
-// Function to process a payment for a notice
 export async function processPayment(noticeId: string, installments: number) {
   try {
     const supabase = await createServerClient()
 
-    // Get the current notice
     const { data: notice, error: noticeError } = await supabase
       .from("policy_notices")
-      .select(`
-        *,
-        policies (
-          *,
-          clients (
-            id,
-            full_name,
-            phone,
-            email
-          ),
-          companies (
-            id,
-            name
-          )
-        )
-      `)
+      .select(`*, policies(*, clients(id, full_name, phone, email), companies(id, name))`)
       .eq("id", noticeId)
       .single()
 
-    if (noticeError || !notice) {
-      return { error: "Error al obtener el aviso" }
-    }
+    if (noticeError || !notice) return { error: "Error al obtener el aviso" }
 
-    // Calculate next due date by adding months to current due date
     const currentDueDate = new Date(notice.due_date)
     const nextDueDate = new Date(currentDueDate)
     nextDueDate.setMonth(nextDueDate.getMonth() + installments)
 
-    // Update current notice to paid status
     const { error: updateError } = await supabase
       .from("policy_notices")
-      .update({
-        status: "pagado",
-        paid_installments: installments,
-      })
+      .update({ status: "pagado", paid_installments: installments })
       .eq("id", noticeId)
 
-    if (updateError) {
-      return { error: "Error al actualizar el estado del pago" }
-    }
+    if (updateError) return { error: "Error al actualizar el estado del pago" }
 
-    // Create new notice for next payment
-    const { error: createError } = await supabase.from("policy_notices").insert([
+    // Create next notice
+    await supabase.from("policy_notices").insert([
       {
         policy_id: notice.policies.id,
         due_date: nextDueDate.toISOString().split("T")[0],
@@ -145,117 +111,81 @@ export async function processPayment(noticeId: string, installments: number) {
       },
     ])
 
-    if (createError) {
-      console.error("Error creating next notice:", createError)
-      // Don't return error here as the payment was processed successfully
-    }
-
-    // Return updated notice
-    const { data: updatedNotice, error: fetchError } = await supabase
+    const { data: updatedNotice } = await supabase
       .from("policy_notices")
-      .select(`
-        *,
-        policies (
-          *,
-          clients (
-            id,
-            full_name,
-            phone,
-            email
-          ),
-          companies (
-            id,
-            name
-          )
-        )
-      `)
+      .select(`*, policies(*, clients(id, full_name, phone, email), companies(id, name))`)
       .eq("id", noticeId)
       .single()
 
-    if (fetchError) {
-      return { error: "Error al obtener los datos actualizados" }
-    }
-
     revalidatePath("/avisos")
+    revalidatePath("/dashboard")
     return { data: updatedNotice }
-  } catch (error) {
+  } catch {
     return { error: "Error inesperado al procesar el pago" }
   }
 }
 
-// Function to automatically reset notices that are 15 days before due date
 export async function resetExpiredNotices() {
   try {
     const supabase = await createServerClient()
-
-    // Calculate date 15 days from now
     const fifteenDaysFromNow = new Date()
     fifteenDaysFromNow.setDate(fifteenDaysFromNow.getDate() + 15)
 
-    // Find paid notices that should be reset to avisar
     const { data: noticesToReset, error: fetchError } = await supabase
       .from("policy_notices")
       .select("*")
       .eq("status", "pagado")
+      .is("deleted_at", null)
       .lte("due_date", fifteenDaysFromNow.toISOString().split("T")[0])
 
-    if (fetchError) {
-      console.error("Error fetching notices to reset:", fetchError)
-      return { error: "Error al obtener avisos para resetear" }
-    }
+    if (fetchError) return { error: "Error al obtener avisos para resetear" }
 
     if (noticesToReset && noticesToReset.length > 0) {
       const { error: updateError } = await supabase
         .from("policy_notices")
         .update({ status: "avisar" })
-        .in(
-          "id",
-          noticesToReset.map((n) => n.id),
-        )
+        .in("id", noticesToReset.map((n) => n.id))
 
-      if (updateError) {
-        console.error("Error resetting notices:", updateError)
-        return { error: "Error al resetear avisos" }
-      }
+      if (updateError) return { error: "Error al resetear avisos" }
     }
 
     revalidatePath("/avisos")
     return { data: noticesToReset }
-  } catch (error) {
+  } catch {
     return { error: "Error inesperado al resetear avisos" }
   }
 }
 
-// Function to clean up expired paid notices
+// Soft delete instead of hard delete — preserves stats
 export async function cleanupExpiredNotices() {
   try {
     const supabase = await createServerClient()
-
-    // Calculate date 15 days ago
     const fifteenDaysAgo = new Date()
     fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15)
 
-    // Delete paid notices that have expired for 15 days
-    const { data: deletedNotices, error: deleteError } = await supabase
+    const { data: expiredNotices, error: fetchError } = await supabase
       .from("policy_notices")
-      .delete()
+      .select("id")
       .eq("status", "pagado")
+      .is("deleted_at", null)
       .lt("due_date", fifteenDaysAgo.toISOString().split("T")[0])
-      .select()
 
-    if (deleteError) {
-      console.error("Error deleting expired paid notices:", deleteError)
-      return { error: "Error al eliminar avisos pagados vencidos" }
-    }
+    if (fetchError || !expiredNotices?.length) return { data: [] }
+
+    const { error: softDeleteError } = await supabase
+      .from("policy_notices")
+      .update({ deleted_at: new Date().toISOString() })
+      .in("id", expiredNotices.map((n) => n.id))
+
+    if (softDeleteError) return { error: "Error al limpiar avisos vencidos" }
 
     revalidatePath("/avisos")
-    return { data: deletedNotices }
-  } catch (error) {
+    return { data: expiredNotices }
+  } catch {
     return { error: "Error inesperado al limpiar avisos vencidos" }
   }
 }
 
-// Function to get notices for display
 export async function getNoticesForDisplay() {
   try {
     const supabase = await createServerClient()
@@ -264,36 +194,110 @@ export async function getNoticesForDisplay() {
 
     const { data: notices, error } = await supabase
       .from("policy_notices")
-      .select(
-        `
+      .select(`
         *,
         policies (
           *,
-          clients (id, full_name, phone, email, locality),
+          clients (id, full_name, phone, email, locality, notes),
           companies (id, name)
         ),
-        notice_notes (
-          id,
-          note,
-          user_id,
-          user_profiles (display_name)
-        )
-      `,
-      )
+        notice_notes (id, note, created_at, user_profiles (display_name))
+      `)
+      .is("deleted_at", null)
       .or(
         `status.eq.avisado,status.eq.pagado,and(status.eq.avisar,due_date.lte.${
           fifteenDaysFromNow.toISOString().split("T")[0]
-        })`,
+        })`
       )
       .order("due_date", { ascending: true })
 
-    if (error) {
-      console.error("Error fetching notices:", error)
-      return { error: "Error al obtener los avisos" }
-    }
+    if (error) return { error: "Error al obtener los avisos" }
+
     await cleanupExpiredNotices()
     return { data: notices || [] }
-  } catch (error) {
+  } catch {
+    return { error: "Error inesperado al obtener avisos" }
+  }
+}
+
+export async function getNoticesFiltered(filters: NoticeFilters) {
+  try {
+    const supabase = await createServerClient()
+    const fifteenDaysFromNow = new Date()
+    fifteenDaysFromNow.setDate(fifteenDaysFromNow.getDate() + 15)
+
+    let query = supabase
+      .from("policy_notices")
+      .select(`
+        *,
+        policies (
+          *,
+          clients (id, full_name, phone, email, locality, notes),
+          companies (id, name)
+        ),
+        notice_notes (id, note, created_at, user_profiles (display_name))
+      `)
+      .is("deleted_at", null)
+      .order("due_date", { ascending: true })
+
+    // Status filter
+    if (!filters.status || filters.status === "todos") {
+      query = query.or(
+        `status.eq.avisado,status.eq.pagado,and(status.eq.avisar,due_date.lte.${
+          fifteenDaysFromNow.toISOString().split("T")[0]
+        })`
+      )
+    } else {
+      query = query.eq("status", filters.status)
+    }
+
+    // Date range
+    if (filters.dateFrom) query = query.gte("due_date", filters.dateFrom)
+    if (filters.dateTo) query = query.lte("due_date", filters.dateTo)
+
+    const { data: notices, error } = await query
+
+    if (error) return { error: "Error al obtener los avisos" }
+
+    let filtered = notices ?? []
+
+    // Client-side filters on nested fields
+    if (filters.search) {
+      const s = filters.search.toLowerCase()
+      filtered = filtered.filter((n: any) => {
+        const client = n.policies?.clients
+        const policy = n.policies
+        return (
+          client?.full_name?.toLowerCase().includes(s) ||
+          policy?.policy_number?.toLowerCase().includes(s) ||
+          policy?.vehicle_plate?.toLowerCase().includes(s)
+        )
+      })
+    }
+    if (filters.clientId) {
+      filtered = filtered.filter((n: any) => n.policies?.clients?.id === filters.clientId)
+    }
+    if (filters.policyNumber) {
+      const pn = filters.policyNumber.toLowerCase()
+      filtered = filtered.filter((n: any) =>
+        n.policies?.policy_number?.toLowerCase().includes(pn)
+      )
+    }
+    if (filters.vehiclePlate) {
+      const vp = filters.vehiclePlate.toLowerCase()
+      filtered = filtered.filter((n: any) =>
+        n.policies?.vehicle_plate?.toLowerCase().includes(vp)
+      )
+    }
+    if (filters.companyId) {
+      filtered = filtered.filter((n: any) => n.policies?.companies?.id === filters.companyId)
+    }
+    if (filters.branch) {
+      filtered = filtered.filter((n: any) => n.policies?.branch === filters.branch)
+    }
+
+    return { data: filtered }
+  } catch {
     return { error: "Error inesperado al obtener avisos" }
   }
 }
@@ -306,28 +310,21 @@ export async function upsertNoticeNote(noticeId: string, noteText: string, noteI
     } = await supabase.auth.getUser()
     if (!user) return { error: "Usuario no autenticado." }
 
-    const noteData = {
-      id: noteId,
-      notice_id: noticeId,
-      user_id: user.id,
-      note: noteText,
-    }
+    const { data, error } = await supabase
+      .from("notice_notes")
+      .upsert({ id: noteId, notice_id: noticeId, user_id: user.id, note: noteText })
+      .select(`*, user_profiles(display_name)`)
+      .single()
 
-    const { data, error } = await supabase.from("notice_notes").upsert(noteData).select(`*, user_profiles(display_name)`).single()
-
-    if (error) {
-      console.error("Error upserting note:", error)
-      return { error: "No se pudo guardar la nota." }
-    }
+    if (error) return { error: "No se pudo guardar la nota." }
 
     revalidatePath("/avisos")
     return { data }
-  } catch (error) {
+  } catch {
     return { error: "Error inesperado al guardar la nota." }
   }
 }
 
-// NUEVA FUNCIÓN para eliminar una nota
 export async function deleteNoticeNote(noteId: string) {
   try {
     const supabase = await createServerClient()
@@ -336,60 +333,55 @@ export async function deleteNoticeNote(noteId: string) {
     } = await supabase.auth.getUser()
     if (!user) return { error: "Usuario no autenticado." }
 
-    const { error } = await supabase.from("notice_notes").delete().match({ id: noteId, user_id: user.id })
+    const { error } = await supabase
+      .from("notice_notes")
+      .delete()
+      .match({ id: noteId, user_id: user.id })
 
-    if (error) {
-      console.error("Error deleting note:", error)
-      return { error: "No se pudo eliminar la nota." }
-    }
+    if (error) return { error: "No se pudo eliminar la nota." }
 
     revalidatePath("/avisos")
     return { data: { success: true } }
-  } catch (error) {
+  } catch {
     return { error: "Error inesperado al eliminar la nota." }
   }
 }
 
 export async function addNoteToNotice(noticeId: string, note: string) {
   try {
-    const supabase = await createServerClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      return { error: "Usuario no autenticado" };
-    }
+    const supabase = await createServerClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return { error: "Usuario no autenticado" }
 
     const { data, error } = await supabase
       .from("notice_notes")
-      .insert({
-        notice_id: noticeId,
-        user_id: user.id,
-        note: note,
-      })
-      .select(
-        `
-        id,
-        note,
-        created_at,
-        user_profiles (
-          display_name
-        )
-      `
-      )
-      .single();
+      .insert({ notice_id: noticeId, user_id: user.id, note })
+      .select(`id, note, created_at, user_profiles(display_name)`)
+      .single()
 
-    if (error) {
-      console.error("Error adding note:", error);
-      return { error: "Error al agregar la nota" };
-    }
-    revalidatePath("/avisos");
-    return { data };
-  } catch (error) {
-    return { error: "Error inesperado al agregar la nota" };
+    if (error) return { error: "Error al agregar la nota" }
+
+    revalidatePath("/avisos")
+    return { data }
+  } catch {
+    return { error: "Error inesperado al agregar la nota" }
   }
 }
 
-// Function to get information of the current user
+export async function deleteNoteFromNotice(noteId: string) {
+  try {
+    const supabase = await createServerClient()
+    const { error } = await supabase.from("notice_notes").delete().eq("id", noteId)
+    if (error) return { error: "Error al eliminar la nota" }
+    revalidatePath("/avisos")
+    return { success: true }
+  } catch {
+    return { error: "Error inesperado al eliminar la nota" }
+  }
+}
+
 export async function getCurrentUser() {
   try {
     const supabase = await createServerClient()
@@ -398,12 +390,13 @@ export async function getCurrentUser() {
       error,
     } = await supabase.auth.getUser()
 
-    if (error || !user) {
-      return { error: "Usuario no autenticado" }
-    }
+    if (error || !user) return { error: "Usuario no autenticado" }
 
-    // Obtener información del perfil del usuario
-    const { data: profile } = await supabase.from("user_profiles").select("display_name").eq("id", user.id).single()
+    const { data: profile } = await supabase
+      .from("user_profiles")
+      .select("display_name")
+      .eq("id", user.id)
+      .single()
 
     return {
       data: {
@@ -411,7 +404,7 @@ export async function getCurrentUser() {
         display_name: profile?.display_name || user.email?.split("@")[0] || "Usuario",
       },
     }
-  } catch (error) {
+  } catch {
     return { error: "Error al obtener usuario" }
   }
 }

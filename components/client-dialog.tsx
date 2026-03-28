@@ -1,460 +1,409 @@
-"use client";
+"use client"
 
-import type React from "react";
-import { useState, useEffect } from "react";
-import { Button } from "@/components/ui/button";
+import type React from "react"
+import { useState, useEffect } from "react"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Plus, Trash2, MapPin } from "lucide-react";
-import { LocalityCombobox } from "@/components/locality-combobox";
-import { createClient, updateClient } from "@/app/actions/clients";
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select"
+import { Loader2, Plus, Trash2, FileText } from "lucide-react"
+import { DateWheelPicker } from "@/components/ui/date-wheel-picker"
+import { LocalityCombobox } from "@/components/locality-combobox"
+import { createClient, updateClient } from "@/app/actions/clients"
+import { POLICY_BRANCHES, VEHICLE_BRANCHES } from "@/types"
 
 interface Policy {
-  id?: string;
-  branch: string;
-  vehicle_plate?: string;
-  first_payment_date: string;
-  company_id: string;
-  companies?: {
-    id: string;
-    name: string;
-  };
+  id?: string
+  branch: string
+  vehicle_plate?: string
+  policy_number?: string
+  first_payment_date: string
+  company_id: string
+  companies?: { id: string; name: string }
 }
 
 interface Client {
-  id: string;
-  full_name: string;
-  phone?: string;
-  email?: string;
-  locality?: string;
-  created_at: string;
-  policies: Policy[];
+  id: string
+  full_name: string
+  phone?: string
+  email?: string
+  locality?: string
+  dni?: string
+  address?: string
+  birth_date?: string
+  notes?: string
+  created_at: string
+  policies: Policy[]
 }
 
 interface Company {
-  id: string;
-  name: string;
+  id: string
+  name: string
 }
 
 interface ClientDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  client?: Client | null;
-  companies: Company[];
-  onSuccess: (client: Client) => void;
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  client?: Client | null
+  companies: Company[]
+  onSuccess: (client: Client) => void
 }
 
-export function ClientDialog({
-  open,
-  onOpenChange,
-  client,
-  companies,
-  onSuccess,
-}: ClientDialogProps) {
-  const [formData, setFormData] = useState({
-    full_name: "",
-    phone: "",
-    email: "",
-    locality: "",
-  });
-  const [policies, setPolicies] = useState<Policy[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [isMounted, setIsMounted] = useState(false);
+const EMPTY_FORM = {
+  full_name: "", phone: "", email: "", locality: "",
+  dni: "", address: "", birth_date: "", notes: "",
+}
 
-  const isEditing = !!client;
+export function ClientDialog({ open, onOpenChange, client, companies, onSuccess }: ClientDialogProps) {
+  const [formData, setFormData] = useState(EMPTY_FORM)
+  const [policies, setPolicies] = useState<Policy[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [isMounted, setIsMounted] = useState(false)
+
+  const isEditing = !!client
+
+  useEffect(() => { if (open) setIsMounted(true) }, [open])
 
   useEffect(() => {
-    if (open) {
-      setIsMounted(true);
+    if (!open) return
+    if (client) {
+      setFormData({
+        full_name: client.full_name,
+        phone: client.phone ?? "",
+        email: client.email ?? "",
+        locality: client.locality ?? "",
+        dni: client.dni ?? "",
+        address: client.address ?? "",
+        birth_date: client.birth_date ?? "",
+        notes: client.notes ?? "",
+      })
+      setPolicies(client.policies ?? [])
+    } else {
+      resetForm()
     }
-  }, [open]);
-
-  useEffect(() => {
-    if (open) {
-      if (client) {
-        setFormData({
-          full_name: client.full_name,
-          phone: client.phone || "",
-          email: client.email || "",
-          locality: client.locality || "",
-        });
-        setPolicies(client.policies || []);
-      } else {
-        resetForm();
-      }
-      setErrors({});
-    }
-  }, [client, open]);
+    setErrors({})
+  }, [client, open])
 
   const validateForm = () => {
-    const newErrors: Record<string, string> = {};
-    if (!formData.full_name.trim())
-      newErrors.full_name = "El nombre completo es requerido";
+    const newErrors: Record<string, string> = {}
+    if (!formData.full_name.trim()) newErrors.full_name = "El nombre completo es requerido"
     if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email))
-      newErrors.email = "El email no tiene un formato válido";
-    policies.forEach((policy, index) => {
-      if (!policy.branch)
-        newErrors[`policy_${index}_branch`] = "La rama es requerida";
-      if (!policy.company_id)
-        newErrors[`policy_${index}_company`] = "La compañía es requerida";
-      if (!policy.first_payment_date)
-        newErrors[`policy_${index}_date`] =
-          "La fecha del primer cobro es requerida";
-    });
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
+      newErrors.email = "El email no tiene un formato válido"
+    policies.forEach((policy, i) => {
+      if (!policy.branch) newErrors[`p${i}_branch`] = "La rama es requerida"
+      if (!policy.company_id) newErrors[`p${i}_company`] = "La compañía es requerida"
+      if (!policy.first_payment_date) newErrors[`p${i}_date`] = "La fecha es requerida"
+    })
+    setErrors(newErrors)
+    return Object.keys(newErrors).length === 0
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!validateForm()) return;
-    setIsLoading(true);
+    e.preventDefault()
+    if (!validateForm()) return
+    setIsLoading(true)
     try {
       const result = isEditing
         ? await updateClient(client.id, formData, policies)
-        : await createClient(formData, policies);
-      if (result.error) setErrors({ general: result.error });
+        : await createClient(formData, policies)
+      if (result.error) setErrors({ general: result.error })
       else if (result.data) {
-        onSuccess(result.data);
-        handleOpenChange(false);
+        onSuccess(result.data)
+        handleOpenChange(false)
       }
-    } catch (err) {
-      setErrors({ general: "Error inesperado. Intenta nuevamente." });
+    } catch {
+      setErrors({ general: "Error inesperado. Intenta nuevamente." })
     } finally {
-      setIsLoading(false);
+      setIsLoading(false)
     }
-  };
+  }
 
-  const resetForm = () => {
-    setFormData({ full_name: "", phone: "", email: "", locality: "" });
-    setPolicies([]);
-    setErrors({});
-  };
+  const resetForm = () => { setFormData(EMPTY_FORM); setPolicies([]); setErrors({}) }
 
   const handleOpenChange = (newOpen: boolean) => {
-    if (!isLoading) {
-      onOpenChange(newOpen);
-      if (!newOpen) {
-        setTimeout(() => {
-          setIsMounted(false);
-          resetForm();
-        }, 200);
-      }
-    }
-  };
+    if (isLoading) return
+    onOpenChange(newOpen)
+    if (!newOpen) setTimeout(() => { setIsMounted(false); resetForm() }, 200)
+  }
 
   const addPolicy = () =>
-    setPolicies([
-      ...policies,
-      { branch: "", vehicle_plate: "", first_payment_date: "", company_id: "" },
-    ]);
+    setPolicies([...policies, { branch: "", vehicle_plate: "", policy_number: "", first_payment_date: "", company_id: "" }])
+
   const removePolicy = (index: number) => {
-    if (window.confirm("¿Estás seguro de eliminar esta póliza?")) {
-      setPolicies(policies.filter((_, i) => i !== index));
-    }
-  };
+    if (window.confirm("¿Eliminar esta póliza?")) setPolicies(policies.filter((_, i) => i !== index))
+  }
+
   const updatePolicy = (index: number, field: keyof Policy, value: string) => {
-    const updatedPolicies = [...policies];
-    updatedPolicies[index] = { ...updatedPolicies[index], [field]: value };
-    setPolicies(updatedPolicies);
-  };
+    const updated = [...policies]
+    updated[index] = { ...updated[index], [field]: value }
+    setPolicies(updated)
+  }
+
+  const field = (id: keyof typeof formData, label: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        id={id}
+        value={formData[id]}
+        onChange={(e) => setFormData({ ...formData, [id]: e.target.value })}
+        disabled={isLoading}
+        className={errors[id] ? "border-destructive" : ""}
+        {...props}
+      />
+      {errors[id] && <p className="text-xs text-destructive">{errors[id]}</p>}
+    </div>
+  )
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+      <DialogContent
+        className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto"
+        style={{
+          backgroundColor: "var(--sp-surface)",
+          border: "1px solid var(--sp-border)",
+        }}
+      >
         <DialogHeader>
-          <DialogTitle>
-            {isEditing ? "Editar Cliente" : "Agregar Nuevo Cliente"}
+          <DialogTitle style={{ color: "var(--sp-text)" }}>
+            {isEditing ? "Editar Asegurado" : "Nuevo Asegurado"}
           </DialogTitle>
-          <DialogDescription>
-            {isEditing
-              ? "Modifica los datos del cliente y sus pólizas."
-              : "Ingresa los datos del nuevo cliente y sus pólizas opcionales."}
+          <DialogDescription style={{ color: "var(--sp-text-muted)" }}>
+            {isEditing ? "Modificá los datos del asegurado y sus pólizas." : "Ingresá los datos del nuevo asegurado."}
           </DialogDescription>
         </DialogHeader>
 
         {isMounted && (
-          <form onSubmit={handleSubmit} className="space-y-6 pt-4">
-            {/* Client Information */}
+          <form onSubmit={handleSubmit} className="space-y-6 pt-2">
+            {/* Client data */}
             <div className="space-y-4">
-              <h3 className="text-lg font-semibold">Información del Cliente</h3>
-              <div className="grid gap-4 md:grid-cols-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--sp-text-muted)" }}>
+                Datos personales
+              </h3>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {field("full_name", "Nombre Completo *", { placeholder: "Juan Carlos Pérez" })}
+                {field("dni", "DNI", { placeholder: "12345678" })}
+                {field("phone", "Teléfono", { placeholder: "+54 299 123-4567" })}
+                {field("email", "Email", { type: "email", placeholder: "juan@email.com" })}
                 <div className="space-y-2">
-                  <Label htmlFor="full_name">Nombre Completo *</Label>
-                  <Input
-                    id="full_name"
-                    value={formData.full_name}
-                    onChange={(e) =>
-                      setFormData({ ...formData, full_name: e.target.value })
-                    }
-                    placeholder="Juan Carlos Pérez"
-                    disabled={isLoading}
-                    className={errors.full_name ? "border-red-500" : ""}
-                  />
-                  {errors.full_name && (
-                    <p className="text-sm text-red-600">{errors.full_name}</p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Teléfono</Label>
-                  <Input
-                    id="phone"
-                    value={formData.phone}
-                    onChange={(e) =>
-                      setFormData({ ...formData, phone: e.target.value })
-                    }
-                    placeholder="+54 299 123-4567"
-                    disabled={isLoading}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) =>
-                      setFormData({ ...formData, email: e.target.value })
-                    }
-                    placeholder="juan.perez@email.com"
-                    disabled={isLoading}
-                    className={errors.email ? "border-red-500" : ""}
-                  />
-                  {errors.email && (
-                    <p className="text-sm text-red-600">{errors.email}</p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="locality">Localidad</Label>
+                  <Label>Localidad</Label>
                   <LocalityCombobox
                     value={formData.locality}
-                    onValueChange={(value) =>
-                      setFormData({ ...formData, locality: value })
-                    }
+                    onValueChange={(v) => setFormData({ ...formData, locality: v })}
                     disabled={isLoading}
                   />
                 </div>
+                {field("address", "Dirección", { placeholder: "Av. San Martín 123" })}
+                <div className="space-y-2">
+                  <Label>Fecha de nacimiento</Label>
+                  <DateWheelPicker
+                    value={formData.birth_date}
+                    onChange={(v) => setFormData({ ...formData, birth_date: v })}
+                    placeholder="Seleccionar fecha"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="notes">Nota del asegurado</Label>
+                <Textarea
+                  id="notes"
+                  value={formData.notes}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                  placeholder="Notas internas sobre el asegurado (visible en recordatorios)..."
+                  rows={2}
+                  disabled={isLoading}
+                  className="resize-none text-sm"
+                />
               </div>
             </div>
 
-            {/* Policies Section */}
+            {/* Policies */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold">Pólizas (Opcional)</h3>
-                <Button
+                <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--sp-text-muted)" }}>
+                  Pólizas
+                </h3>
+                <button
                   type="button"
-                  variant="outline"
-                  size="sm"
                   onClick={addPolicy}
-                  className="gap-2 bg-transparent"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                  style={{
+                    backgroundColor: "var(--sp-accent-soft)",
+                    border: "1px solid rgba(173,198,255,0.2)",
+                    color: "var(--sp-accent-text)",
+                  }}
                 >
-                  <Plus className="h-4 w-4" /> Agregar Póliza
-                </Button>
+                  <Plus className="h-3.5 w-3.5" /> Agregar Póliza
+                </button>
               </div>
+
               {policies.length === 0 ? (
-                <Card>
-                  <CardContent className="flex flex-col items-center justify-center py-8">
-                    <MapPin className="h-8 w-8 text-muted-foreground mb-2" />
-                    <p className="text-sm text-muted-foreground text-center">
-                      No hay pólizas agregadas.
-                    </p>
-                  </CardContent>
-                </Card>
+                <div
+                  className="rounded-lg py-8 text-center"
+                  style={{ border: "1px dashed var(--sp-border-strong)" }}
+                >
+                  <FileText className="h-7 w-7 mx-auto mb-2" style={{ color: "var(--sp-text-faint)" }} />
+                  <p className="text-sm" style={{ color: "var(--sp-text-muted)" }}>Sin pólizas. Podés agregarlas ahora o después.</p>
+                </div>
               ) : (
                 <div className="space-y-4">
                   {policies.map((policy, index) => (
-                    <Card key={index}>
-                      <CardHeader className="pb-3">
-                        <div className="flex items-center justify-between">
-                          <CardTitle className="text-base">
-                            Póliza {index + 1}
-                          </CardTitle>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => removePolicy(index)}
-                            className="h-8 w-8 p-0 text-red-600 hover:text-red-700"
+                    <div
+                      key={index}
+                      className="rounded-xl overflow-hidden"
+                      style={{
+                        backgroundColor: "var(--sp-surface-low)",
+                        border: "1px solid var(--sp-border)",
+                      }}
+                    >
+                      <div
+                        className="px-4 py-3 flex items-center justify-between"
+                        style={{ borderBottom: "1px solid var(--sp-border)" }}
+                      >
+                        <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--sp-text-muted)" }}>
+                          Póliza {index + 1}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => removePolicy(index)}
+                          className="p-1.5 rounded-lg transition-all"
+                          style={{ color: "var(--sp-text-muted)" }}
+                          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--sp-red)"; e.currentTarget.style.backgroundColor = "var(--sp-red-soft)" }}
+                          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--sp-text-muted)"; e.currentTarget.style.backgroundColor = "transparent" }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      <div className="p-4 grid gap-3 sm:grid-cols-2">
+                        {/* Branch */}
+                        <div className="space-y-2">
+                          <Label>Rama *</Label>
+                          <Select
+                            value={policy.branch}
+                            onValueChange={(v) => updatePolicy(index, "branch", v)}
+                            disabled={isLoading}
                           >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        <div className="grid gap-4 md:grid-cols-2">
-                          <div className="space-y-2">
-                            <Label>Rama *</Label>
-                            <Select
-                              value={policy.branch}
-                              onValueChange={(value) =>
-                                updatePolicy(index, "branch", value)
-                              }
-                              disabled={isLoading}
-                            >
-                              <SelectTrigger
-                                className={
-                                  errors[`policy_${index}_branch`]
-                                    ? "border-red-500"
-                                    : ""
-                                }
-                              >
-                                <SelectValue placeholder="Seleccionar rama" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="Automotores">
-                                  Automotores
-                                </SelectItem>
-                                <SelectItem value="Motovehiculos">
-                                  Motovehiculos
-                                </SelectItem>
-                                <SelectItem value="Responsabilidad civil">
-                                  Responsabilidad civil
-                                </SelectItem>
-                                <SelectItem value="Accidente Personal">
-                                  Accidente Personal
-                                </SelectItem>
-                                <SelectItem value="Bicicletas">
-                                  Bicicletas
-                                </SelectItem>
-                                <SelectItem value="Integral de Comercio">
-                                  Integral de Comercio
-                                </SelectItem>
-                                <SelectItem value="Combinado Familiar">
-                                  Combinado Familiar
-                                </SelectItem>
-                              </SelectContent>
-                            </Select>
-                            {errors[`policy_${index}_branch`] && (
-                              <p className="text-sm text-red-600">
-                                {errors[`policy_${index}_branch`]}
-                              </p>
-                            )}
-                          </div>
-                          <div className="space-y-2">
-                            <Label>Compañía *</Label>
-                            <Select
-                              value={policy.company_id}
-                              onValueChange={(value) =>
-                                updatePolicy(index, "company_id", value)
-                              }
-                              disabled={isLoading}
-                            >
-                              <SelectTrigger
-                                className={
-                                  errors[`policy_${index}_company`]
-                                    ? "border-red-500"
-                                    : ""
-                                }
-                              >
-                                <SelectValue placeholder="Seleccionar compañía" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {companies.map((company) => (
-                                  <SelectItem
-                                    key={company.id}
-                                    value={company.id}
-                                  >
-                                    {company.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            {errors[`policy_${index}_company`] && (
-                              <p className="text-sm text-red-600">
-                                {errors[`policy_${index}_company`]}
-                              </p>
-                            )}
-                          </div>
-                          {/* CAMBIO: Se muestra siempre si hay una rama seleccionada */}
-                          {policy.branch && (
-                            <div className="space-y-2">
-                              <Label>Número de Póliza</Label>
-                              <Input
-                                value={policy.vehicle_plate || ""}
-                                onChange={(e) =>
-                                  updatePolicy(
-                                    index,
-                                    "vehicle_plate",
-                                    e.target.value.toUpperCase()
-                                  )
-                                }
-                                placeholder="N° de Póliza"
-                                disabled={isLoading}
-                              />
-                            </div>
+                            <SelectTrigger className={errors[`p${index}_branch`] ? "border-destructive" : ""}>
+                              <SelectValue placeholder="Seleccionar rama" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {POLICY_BRANCHES.map((b) => (
+                                <SelectItem key={b} value={b}>{b}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {errors[`p${index}_branch`] && (
+                            <p className="text-xs text-destructive">{errors[`p${index}_branch`]}</p>
                           )}
-                          <div className="space-y-2">
-                            <Label>Fecha del Primer Cobro *</Label>
-                            <Input
-                              type="date"
-                              value={policy.first_payment_date}
-                              onChange={(e) =>
-                                updatePolicy(
-                                  index,
-                                  "first_payment_date",
-                                  e.target.value
-                                )
-                              }
-                              disabled={isLoading}
-                              className={
-                                errors[`policy_${index}_date`]
-                                  ? "border-red-500"
-                                  : ""
-                              }
-                            />
-                            {errors[`policy_${index}_date`] && (
-                              <p className="text-sm text-red-600">
-                                {errors[`policy_${index}_date`]}
-                              </p>
-                            )}
-                          </div>
                         </div>
-                      </CardContent>
-                    </Card>
+
+                        {/* Company */}
+                        <div className="space-y-2">
+                          <Label>Compañía *</Label>
+                          <Select
+                            value={policy.company_id}
+                            onValueChange={(v) => updatePolicy(index, "company_id", v)}
+                            disabled={isLoading}
+                          >
+                            <SelectTrigger className={errors[`p${index}_company`] ? "border-destructive" : ""}>
+                              <SelectValue placeholder="Seleccionar compañía" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {companies.map((c) => (
+                                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {errors[`p${index}_company`] && (
+                            <p className="text-xs text-destructive">{errors[`p${index}_company`]}</p>
+                          )}
+                        </div>
+
+                        {/* Policy number */}
+                        <div className="space-y-2">
+                          <Label>N° de Póliza</Label>
+                          <Input
+                            value={policy.policy_number ?? ""}
+                            onChange={(e) => updatePolicy(index, "policy_number", e.target.value)}
+                            placeholder="Número de póliza"
+                            disabled={isLoading}
+                          />
+                        </div>
+
+                        {/* Vehicle plate — only for vehicle branches */}
+                        {VEHICLE_BRANCHES.includes(policy.branch as any) && (
+                          <div className="space-y-2">
+                            <Label>Patente</Label>
+                            <Input
+                              value={policy.vehicle_plate ?? ""}
+                              onChange={(e) => updatePolicy(index, "vehicle_plate", e.target.value.toUpperCase())}
+                              placeholder="ABC123"
+                              disabled={isLoading}
+                              maxLength={10}
+                            />
+                          </div>
+                        )}
+
+                        {/* First payment date */}
+                        <div className="space-y-2">
+                          <Label>Fecha del Primer Cobro *</Label>
+                          <DateWheelPicker
+                            value={policy.first_payment_date}
+                            onChange={(v) => updatePolicy(index, "first_payment_date", v)}
+                            placeholder="Seleccionar fecha"
+                          />
+                          {errors[`p${index}_date`] && (
+                            <p className="text-xs text-destructive">{errors[`p${index}_date`]}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}
             </div>
 
             {errors.general && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-                <p className="text-sm text-red-600">{errors.general}</p>
+              <div
+                className="p-3 rounded-lg text-sm"
+                style={{
+                  backgroundColor: "var(--sp-red-soft)",
+                  border: "1px solid var(--sp-red)",
+                  color: "var(--sp-red)",
+                }}
+              >
+                {errors.general}
               </div>
             )}
 
-            <div className="flex justify-end gap-3 pt-4 border-t">
-              <Button
+            <div className="flex justify-end gap-2 pt-2" style={{ borderTop: "1px solid var(--sp-border)" }}>
+              <button
                 type="button"
-                variant="outline"
                 onClick={() => handleOpenChange(false)}
                 disabled={isLoading}
+                className="px-4 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-40"
+                style={{ border: "1px solid var(--sp-border-strong)", color: "var(--sp-text-muted)" }}
               >
                 Cancelar
-              </Button>
-              <Button type="submit" disabled={isLoading}>
+              </button>
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ background: "linear-gradient(135deg, #adc6ff, #4d8eff)", color: "#001a42" }}
+              >
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {isEditing ? "Actualizar" : "Crear"} Cliente
-              </Button>
+                {isEditing ? "Actualizar" : "Crear"} asegurado
+              </button>
             </div>
           </form>
         )}
       </DialogContent>
     </Dialog>
-  );
+  )
 }

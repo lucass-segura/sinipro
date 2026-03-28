@@ -4,6 +4,33 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  /* ─── SiniPro semantic tokens (light) ─────────────────────────────────── */
+  --sp-bg: #f0f2f8;
+  --sp-surface: #ffffff;
+  --sp-surface-hover: #eceef6;
+  --sp-surface-low: #f5f6fb;
+  --sp-surface-lowest: #e4e7f2;
+  --sp-border: rgba(40,50,100,0.1);
+  --sp-border-strong: rgba(40,50,100,0.18);
+  --sp-header-bg: rgba(240,242,248,0.85);
+  --sp-text: #13152a;
+  --sp-text-muted: #4a5270;
+  --sp-text-faint: #8892b0;
+  --sp-accent: #4d8eff;
+  --sp-accent-soft: rgba(77,142,255,0.1);
+  --sp-accent-text: #4d8eff;
+  --sp-red: #b3261e;
+  --sp-red-soft: rgba(179,38,30,0.08);
+  --sp-green: #006e2a;
+  --sp-green-soft: rgba(0,110,42,0.08);
+  --sp-amber: #92400e;
+  --sp-amber-soft: rgba(146,64,14,0.08);
+  --sp-sidebar-bg: #ffffff;
+  --sp-sidebar-border: rgba(40,50,100,0.1);
+  --sp-sidebar-text: #4a5270;
+  --sp-sidebar-active: rgba(77,142,255,0.08);
+  --sp-sidebar-accent: #4d8eff;
+
   --background: oklch(1 0 0); /* Pure white background */
   --foreground: oklch(0.35 0 0); /* Dark gray text */
   --card: oklch(0.98 0 0); /* Light gray card background */
@@ -40,6 +67,33 @@
 }
 
 .dark {
+  /* ─── SiniPro semantic tokens (dark) ──────────────────────────────────── */
+  --sp-bg: #111218;
+  --sp-surface: #1e1f26;
+  --sp-surface-hover: #272830;
+  --sp-surface-low: #181920;
+  --sp-surface-lowest: #141519;
+  --sp-border: rgba(200,210,255,0.08);
+  --sp-border-strong: rgba(200,210,255,0.15);
+  --sp-header-bg: rgba(17,18,24,0.85);
+  --sp-text: #e8eaf0;
+  --sp-text-muted: #8892b0;
+  --sp-text-faint: #555d78;
+  --sp-accent: #6da3ff;
+  --sp-accent-soft: rgba(109,163,255,0.1);
+  --sp-accent-text: #6da3ff;
+  --sp-red: #f2b8b5;
+  --sp-red-soft: rgba(242,184,181,0.08);
+  --sp-green: #4ae176;
+  --sp-green-soft: rgba(74,225,118,0.08);
+  --sp-amber: #f59e0b;
+  --sp-amber-soft: rgba(245,158,11,0.08);
+  --sp-sidebar-bg: #1e1f26;
+  --sp-sidebar-border: rgba(200,210,255,0.08);
+  --sp-sidebar-text: #8892b0;
+  --sp-sidebar-active: rgba(109,163,255,0.08);
+  --sp-sidebar-accent: #6da3ff;
+
   --background: oklch(0.1 0 0);
   --foreground: oklch(0.95 0 0);
   --card: oklch(0.15 0 0);

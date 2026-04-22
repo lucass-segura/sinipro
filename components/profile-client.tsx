@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useTheme } from "next-themes"
+import { useThemeTransition } from "@/hooks/use-theme-transition"
 import { Sun, Moon, Save, User, Mail, Palette, Check, Loader2 } from "lucide-react"
 import { updateDisplayName } from "@/app/actions/profile"
 import { toast } from "sonner"
@@ -12,7 +12,7 @@ interface ProfileClientProps {
 }
 
 export function ProfileClient({ initialDisplayName, email }: ProfileClientProps) {
-  const { theme, setTheme } = useTheme()
+  const { theme, applyTheme } = useThemeTransition()
   const [mounted, setMounted] = useState(false)
   const [displayName, setDisplayName] = useState(initialDisplayName)
   const [saving, setSaving] = useState(false)
@@ -177,7 +177,7 @@ export function ProfileClient({ initialDisplayName, email }: ProfileClientProps)
         <div className="grid grid-cols-2 gap-3">
           {/* Dark mode */}
           <button
-            onClick={() => setTheme("dark")}
+            onClick={() => applyTheme("dark")}
             className="relative flex flex-col items-center gap-3 p-4 rounded-xl transition-all"
             style={{
               backgroundColor: isDark ? "rgba(173,198,255,0.08)" : "var(--sp-surface-low)",
@@ -213,7 +213,7 @@ export function ProfileClient({ initialDisplayName, email }: ProfileClientProps)
 
           {/* Light mode */}
           <button
-            onClick={() => setTheme("light")}
+            onClick={() => applyTheme("light")}
             className="relative flex flex-col items-center gap-3 p-4 rounded-xl transition-all"
             style={{
               backgroundColor: !isDark ? "rgba(77,142,255,0.08)" : "var(--sp-surface-low)",

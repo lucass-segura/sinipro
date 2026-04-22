@@ -1,15 +1,21 @@
+import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { CompaniesSection } from "@/components/companies-section"
 
 export default async function CompaniasPage() {
   const supabase = await createClient()
 
-  const [companiesResult, policiesResult] = await Promise.all([
+  const { data: authData } = await supabase.auth.getUser()
+  if (!authData?.user) redirect("/auth/login")
+
+  const [companiesResult, policiesResult, profileResult] = await Promise.all([
     supabase.from("companies").select("*").order("name"),
     supabase.from("policies").select("company_id").eq("is_active", true),
+    supabase.from("user_profiles").select("role").eq("id", authData.user.id).single(),
   ])
 
   const companies = companiesResult.data || []
+  const role = profileResult.data?.role ?? "broker"
 
   // Build policy count map per company
   const policyCountMap: Record<string, number> = {}
@@ -48,7 +54,7 @@ export default async function CompaniasPage() {
       </header>
 
       {/* Content */}
-      <CompaniesSection companies={companies} policyCountMap={policyCountMap} />
+      <CompaniesSection companies={companies} policyCountMap={policyCountMap} role={role} />
     </div>
   )
 }

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Pencil, Trash2, Plus } from "lucide-react"
+import { Pencil, Trash2, Plus, ShieldAlert, X } from "lucide-react"
 import { CompanyDialog } from "@/components/company-dialog"
 
 interface Company {
@@ -14,6 +14,7 @@ interface Company {
 interface CompaniesSectionProps {
   companies: Company[]
   policyCountMap: Record<string, number>
+  role: string
 }
 
 // Deterministic avatar color per company index
@@ -36,11 +37,14 @@ function getInitials(name: string) {
   return (words[0][0] + words[1][0]).toUpperCase()
 }
 
-export function CompaniesSection({ companies: initialCompanies, policyCountMap }: CompaniesSectionProps) {
+export function CompaniesSection({ companies: initialCompanies, policyCountMap, role }: CompaniesSectionProps) {
   const [companies, setCompanies] = useState<Company[]>(initialCompanies)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingCompany, setEditingCompany] = useState<Company | null>(null)
   const [policyCounts, setPolicyCounts] = useState<Record<string, number>>(policyCountMap)
+  const [showAdminModal, setShowAdminModal] = useState(false)
+
+  const isAdmin = role === "admin"
 
   const handleAddCompany = () => {
     setEditingCompany(null)
@@ -48,8 +52,13 @@ export function CompaniesSection({ companies: initialCompanies, policyCountMap }
   }
 
   const handleEditCompany = (company: Company) => {
+    if (!isAdmin) { setShowAdminModal(true); return }
     setEditingCompany(company)
     setIsDialogOpen(true)
+  }
+
+  const handleDeleteCompany = () => {
+    if (!isAdmin) { setShowAdminModal(true); return }
   }
 
   const handleCompanyUpdate = (updatedCompany: Company) => {
@@ -169,6 +178,7 @@ export function CompaniesSection({ companies: initialCompanies, policyCountMap }
                     <Pencil className="h-4 w-4" />
                   </button>
                   <button
+                    onClick={handleDeleteCompany}
                     title="Eliminar"
                     className="p-2 rounded-lg transition-all"
                     style={{ color: "var(--sp-text-muted)" }}
@@ -229,6 +239,66 @@ export function CompaniesSection({ companies: initialCompanies, policyCountMap }
         company={editingCompany}
         onSuccess={handleCompanyUpdate}
       />
+
+      {/* Modal: acción restringida a admin */}
+      {showAdminModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+          onClick={() => setShowAdminModal(false)}
+        >
+          <div
+            className="relative w-full max-w-sm rounded-2xl p-6 space-y-4"
+            style={{
+              backgroundColor: "var(--sp-surface)",
+              border: "1px solid var(--sp-border-strong)",
+              boxShadow: "0 24px 64px rgba(0,0,0,0.4)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setShowAdminModal(false)}
+              className="absolute top-4 right-4 p-1 rounded-lg transition-all"
+              style={{ color: "var(--sp-text-faint)" }}
+            >
+              <X className="h-4 w-4" />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div
+                className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                style={{ backgroundColor: "var(--sp-amber-soft)" }}
+              >
+                <ShieldAlert className="h-5 w-5" style={{ color: "var(--sp-amber)" }} />
+              </div>
+              <div>
+                <h3 className="font-bold text-base" style={{ color: "var(--sp-text)" }}>
+                  Acción restringida
+                </h3>
+                <p className="text-xs" style={{ color: "var(--sp-text-muted)" }}>
+                  Permiso de administrador requerido
+                </p>
+              </div>
+            </div>
+
+            <p className="text-sm leading-relaxed" style={{ color: "var(--sp-text-muted)" }}>
+              Para editar o eliminar una compañía necesitás comunicarte con un administrador del sistema.
+            </p>
+
+            <button
+              onClick={() => setShowAdminModal(false)}
+              className="w-full py-2.5 rounded-lg text-sm font-bold transition-all hover:brightness-110"
+              style={{
+                backgroundColor: "var(--sp-surface-hover)",
+                color: "var(--sp-text)",
+                border: "1px solid var(--sp-border-strong)",
+              }}
+            >
+              Entendido
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

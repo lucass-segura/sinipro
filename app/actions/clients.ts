@@ -153,6 +153,7 @@ export async function updateClient(clientId: string, clientData: ClientData, pol
 
     revalidatePath("/asegurados")
     revalidatePath("/dashboard")
+    revalidatePath("/avisos")
     return { data: completeClient }
   } catch {
     return { error: "Error inesperado al actualizar el cliente" }

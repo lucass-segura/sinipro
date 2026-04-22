@@ -26,7 +26,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { createBrowserClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
-import { useTheme } from "next-themes"
+import { useThemeTransition } from "@/hooks/use-theme-transition"
 
 const mainNav = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -142,7 +142,7 @@ function SidebarContent({
   onLogout: () => void
   isLoggingOut: boolean
 }) {
-  const { theme, setTheme } = useTheme()
+  const { theme, toggleTheme } = useThemeTransition()
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
 
@@ -202,7 +202,8 @@ function SidebarContent({
           </div>
         )}
 
-        <div>
+        {/* MÓDULOS PRÓXIMAMENTE — ocultos temporalmente, ver README */}
+        {/* <div>
           <p
             className="text-[10px] uppercase tracking-[0.15em] font-medium px-4 mb-2"
             style={{ color: "var(--sp-sidebar-text)" }}
@@ -214,7 +215,7 @@ function SidebarContent({
               <NavItem key={item.href} item={item} pathname={pathname} isFuture />
             ))}
           </div>
-        </div>
+        </div> */}
       </nav>
 
       {/* User footer */}
@@ -245,7 +246,7 @@ function SidebarContent({
           </div>
         </Link>
         <button
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          onClick={toggleTheme}
           className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm transition-all"
           style={{ color: "var(--sp-sidebar-text)" }}
           onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--sp-sidebar-active)"; e.currentTarget.style.color = "var(--sp-sidebar-accent)" }}
